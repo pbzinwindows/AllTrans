@@ -1,25 +1,12 @@
-/*
- * Copyright 2017 Akhil Kedia
- * This file is part of AllTrans.
- *
- * AllTrans is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * AllTrans is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with AllTrans. If not, see <http://www.gnu.org/licenses/>.
- *
- */
-
-
-
+// Apply plugins at the top
 apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
+// A ordem de aplicação dos plugins do Firebase é importante.
+// Geralmente, 'com.google.gms.google-services' vem primeiro ou no final,
+// e 'com.google.firebase.crashlytics' depois de 'com.android.application' e 'kotlin-android'.
+// A forma como você tem (no final com afterEvaluate) também funciona, mas esta é uma alternativa.
+apply plugin: 'com.google.firebase.crashlytics'
+
 
 android {
     signingConfigs {
@@ -30,64 +17,91 @@ android {
             keyPassword RELEASE_KEY_PASSWORD
         }
     }
-    compileSdk 33
-//    buildToolsVersion '32.0.0'
+    compileSdk 35
+//    buildToolsVersion '32.0.0' // Geralmente não é mais necessário especificar buildToolsVersion
 
     defaultConfig {
         applicationId "akhil.alltrans"
-        minSdkVersion 19
-        //noinspection ExpiredTargetSdkVersion
-        targetSdkVersion 30
+        minSdkVersion 29
+        targetSdkVersion 35 // Mantido, bom para M3
         versionCode 196
         versionName "1.9.6"
-        multiDexEnabled true
+        multiDexEnabled true // Suficiente para minSdk 29+, não precisa da dependência antiga
         signingConfig signingConfigs.publish
     }
     buildTypes {
         debug {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            minifyEnabled false // Mantenha false para debug, ou configure regras específicas se habilitar
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro' // Use -optimize
         }
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            minifyEnabled false // Considere habilitar para release (true) e testar exaustivamente
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro' // Use -optimize
         }
     }
     namespace 'akhil.alltrans'
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+
+    // Habilitar ViewBinding (opcional, mas recomendado para interagir com views de forma segura)
+    // buildFeatures {
+    //     viewBinding true
+    // }
 }
 
 repositories {
     google()
     mavenCentral()
-//    maven { url "https://jitpack.io" }
+    // maven { url "https://jitpack.io" } // Descomente se alguma dependência exigir
 }
 
 dependencies {
-    compileOnly 'de.robv.android.xposed:api:82:sources'
-    compileOnly 'de.robv.android.xposed:api:82'
+    implementation 'androidx.core:core-ktx:1.16.0' // Mais recente estável
+    compileOnly 'de.robv.android.xposed:api:82' // Removido :sources
 
-    implementation 'com.google.code.gson:gson:2.10.1'
-    implementation 'com.squareup.okhttp3:okhttp:4.9.1'
+    implementation 'com.google.code.gson:gson:2.13.1' // Versão mais recente
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0' // Já é recente
 
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'com.google.android.material:material:1.9.0'
+    implementation 'androidx.appcompat:appcompat:1.7.0' // Mais recente estável
+
+    // Material Design 3 - versão ajustada para incluir todos os componentes
+    implementation 'com.google.android.material:material:1.12.0'
+
+    // Preferences com suporte para Material3
     implementation 'androidx.preference:preference:1.2.1'
-    implementation 'androidx.legacy:legacy-support-v4:1.0.0'
-    implementation 'androidx.percentlayout:percentlayout:1.0.0'
+    implementation 'androidx.preference:preference-ktx:1.2.1'
 
-    implementation 'com.google.firebase:firebase-analytics:21.3.0'
-    implementation 'com.google.firebase:firebase-crashlytics:18.4.0'
-    implementation 'com.google.mlkit:translate:17.0.1'
-    implementation 'com.android.support:multidex:1.0.3'
+    implementation 'androidx.constraintlayout:constraintlayout:2.2.1' // Exemplo de versão, verifique a mais recente
 
-    implementation 'com.codemybrainsout.rating:ratingdialog:1.0.8'
+    // Firebase
+    implementation platform('com.google.firebase:firebase-bom:33.13.0') // BOM para gerenciar versões Firebase
+    implementation 'com.google.firebase:firebase-analytics-ktx' // Usar -ktx para APIs Kotlin-friendly
+    implementation 'com.google.firebase:firebase-crashlytics-ktx' // Usar -ktx
 
+    // ML Kit
+    implementation 'com.google.mlkit:translate:17.0.3' // 17.0.2 é a última estável conhecida, verifique se 17.0.3 tem algum problema específico.
 
+    // Lifecycle & Coroutines
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.9.0'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3' // (1.8.1 é mais recente)
 }
+
+// Apply google-services plugin no final do arquivo, como você tinha, ou aqui se preferir.
+// Este plugin precisa ler as dependências, então sua posição original no final é correta.
 apply plugin: 'com.google.gms.google-services'
-apply plugin: 'com.google.firebase.crashlytics'
 
+// O plugin kotlin-android já está aplicado no topo, não precisa aqui novamente.
+// apply plugin: 'org.jetbrains.kotlin.android'
 
+// Suas tasks customizadas (mantidas como estão)
 afterEvaluate {
     installDebug.doLast {
 //        updateVirtualXposedAPP.exec()
@@ -97,20 +111,20 @@ afterEvaluate {
     }
 }
 
-task updateVirtualXposedAPP(type: Exec) {
+tasks.register('updateVirtualXposedAPP', Exec) {
     def pkg = android.defaultConfig.applicationId
     commandLine android.adbExecutable, 'shell', 'am', 'broadcast', '-a', 'io.va.exposed.CMD', '-e', 'cmd', 'update', '-e', 'pkg', pkg
 }
 
-task clearLog(type: Exec) {
+tasks.register('clearLog', Exec) {
     commandLine android.adbExecutable, 'logcat', '-c'
 }
 
-task rebootVirtualXposedAPP(type: Exec) {
+tasks.register('rebootVirtualXposedAPP', Exec) {
     commandLine android.adbExecutable, 'shell', 'am', 'broadcast', '-a', 'io.va.exposed.CMD', '-e', 'cmd', 'reboot'
 }
 
-task launchVirtualXposedAPP(type: Exec) {
+tasks.register('launchVirtualXposedAPP', Exec) {
     def pkg = "com.megabox.mop" // for example: com.tencent.mm
     commandLine android.adbExecutable, 'shell', 'am', 'broadcast', '-a', 'io.va.exposed.CMD', '-e', 'cmd', 'launch', '-e', 'pkg', pkg
 }

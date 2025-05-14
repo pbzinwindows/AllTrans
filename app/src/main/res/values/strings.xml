@@ -21,6 +21,39 @@
     <integer name="default_delay">0</integer>
     <integer name="default_delay_webview">500</integer>
 
+    <string name="pref_cat_translate_settings_local">Local App Translate Settings</string>
+    <string name="translator_provider_local">App-Specific Translation Provider</string>
+    <string name="translator_provider_use_global">Use Global Setting</string>
+
+    <!-- Títulos e Sumários para chaves GLOBAIS específicas -->
+    <string name="subKey_micro_global">Global Microsoft Subscription Key</string>
+    <string name="subKey_summary_micro_global">Enter your global Microsoft Azure Translation API Key</string>
+    <string name="subRegion_micro_global">Global Microsoft Subscription Region</string>
+    <string name="subRegion_summary_micro_global">Enter your global Microsoft API Region (e.g., eastus)</string>
+    <string name="subKey_yandex_global">Global Yandex Subscription Key</string>
+    <string name="subKey_summary_yandex_global">Enter your global Yandex Translate API Key</string>
+
+    <!-- Títulos e Sumários para chaves LOCAIS específicas -->
+    <string name="subKey_micro_local">Local Microsoft Subscription Key</string>
+    <string name="subRegion_micro_local">Local Microsoft Subscription Region</string>
+    <string name="subKey_yandex_local">Local Yandex Subscription Key</string>
+    <string name="subKey_summary_local">(Only if overriding provider locally)</string>
+    <string name="subRegion_summary_local">(Only if overriding to Microsoft locally)</string>
+
+    <!-- Títulos para categorias locais -->
+    <string name="pref_cat_troubleshooting_info_local">Local Troubleshooting Settings</string>
+    <string name="pref_cat_advanced_settings_local">Local Advanced Settings</string>
+
+    <string name="search">Search</string>
+    <string name="rate_now">Avaliar Agora</string>
+    <string name="later">Mais Tarde</string>
+
+    <string name="subRegion_yandex">Região da Chave Yandex</string>
+    <string name="subRegion_micro">Região da Chave Microsoft</string>
+    <string name="invalid_language_code">Código de idioma inválido para download do modelo</string>
+    <string name="subRegion_title">Região da Chave Microsoft/Yandex</string>
+    <string name="subRegion_summary">Insira a região associada à sua chave (ex: eastus, brazilsouth). Deixe em branco se não for regional.</string>
+
     <string name="app_name">"AllTrans"</string>
     <string name="loading">"Loading List of Applications - Please Wait"</string>
     <string name="clear_cache_success">"Please force-close the translated app! Translate Cache for this app will be erased next time the app starts!!"</string>
@@ -32,8 +65,8 @@
 
     <!-- activity_main toolbar -->
     <string name="translate_anywhere">"Translate Everywhere"</string>
-    <string name="apps_to_translate">"Apps to Translate"</string>
-    <string name="global_settings">"Global Settings"</string>
+    <string name="apps_to_translate">"Apps"</string>
+    <string name="global_settings">"Global"</string>
     <string name="instructions">"Instructions"</string>
 
     <!-- Feedback Dialog -->

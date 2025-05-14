@@ -494,4 +494,18 @@
         <item>@string/Chinese_yandex</item>
     </string-array>
 
+    <string-array name="localTranslatorProviderCodes" translatable="false"> <!-- NOME CORRIGIDO -->
+        <item>use_global</item>
+        <item>g</item>
+        <item>m</item>
+        <item>y</item>
+    </string-array>
+
+    <string-array name="localTranslatorProviderNames" translatable="false"> <!-- NOME CORRIGIDO -->
+        <item>@string/translator_provider_use_global</item>
+        <item>@string/translator_provider_google</item>
+        <item>@string/translator_provider_microsoft</item>
+        <item>@string/translator_provider_yandex</item>
+    </string-array>
+
 </resources>
