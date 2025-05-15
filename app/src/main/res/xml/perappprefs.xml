@@ -34,6 +34,17 @@
 
         <ListPreference
             app:iconSpaceReserved="false"
+            app:defaultValue="g"
+            app:entries="@array/translator_provider_entries"
+            app:entryValues="@array/translator_provider_values"
+            app:key="TranslatorProvider"
+            app:summary="@string/translator_provider_summary"
+            app:title="@string/translator_provider"
+            app:useSimpleSummaryProvider="true"
+            android:layout="@layout/preference_material_item" />
+
+        <ListPreference
+            app:iconSpaceReserved="false"
             app:defaultValue="ko"
             app:entries="@array/languageNames"
             app:entryValues="@array/languageCodes"

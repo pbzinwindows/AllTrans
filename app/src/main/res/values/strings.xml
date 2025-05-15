@@ -175,6 +175,7 @@
     <!-- clear cache -->
     <string name="clear_cache">"Click to clear Translation Cache"</string>
     <string name="clear_cache_summary">"Click the above to clear the app&apos;s translate cache. Use this after changing to/from languages, or if the app does not start."</string>
+    <string name="clear_cache_provider">Cache limpo devido à mudança de provedor</string>
 
     <!--- Google Language Names -->
     <string name="Afrikaans_google">"Afrikaans"</string>

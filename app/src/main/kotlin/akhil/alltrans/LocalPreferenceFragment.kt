@@ -8,12 +8,12 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog // Adicionar import
+import androidx.appcompat.app.AlertDialog
 import androidx.core.view.isVisible
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
-import androidx.preference.SwitchPreference // <<-- IMPORTAR SwitchPreference
+import androidx.preference.SwitchPreference
 import com.google.android.gms.tasks.OnFailureListener
 import com.google.android.gms.tasks.OnSuccessListener
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -24,13 +24,12 @@ import com.google.mlkit.nl.translate.TranslatorOptions
 import java.text.Collator
 import java.util.Arrays
 import java.util.TreeMap
-import java.util.Locale // Adicionar import
+import java.util.Locale
 
 class LocalPreferenceFragment : PreferenceFragmentCompat() {
     var applicationInfo: ApplicationInfo? = null
-    private var globalSettings: SharedPreferences? = null // Referência às prefs globais
+    private var globalSettings: SharedPreferences? = null
 
-    // --- FUNÇÕES AUXILIARES (sem alterações nesta parte) ---
     private fun handleProviderChange(translatorProviderSelected: String) {
         val translateFromLanguage = findPreference<ListPreference?>("TranslateFromLanguage")
         val translateToLanguage = findPreference<ListPreference?>("TranslateToLanguage")
@@ -50,7 +49,7 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
             translateFromLanguage.setEntryValues(R.array.languageCodes)
             translateToLanguage.setEntries(R.array.languageNames)
             translateToLanguage.setEntryValues(R.array.languageCodes)
-        } else { // Google ou default
+        } else {
             translateFromLanguage.setEntries(R.array.languageNamesGoogle)
             translateFromLanguage.setEntryValues(R.array.languageCodesGoogle)
             translateToLanguage.setEntries(R.array.languageNamesGoogle)
@@ -80,7 +79,6 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
             }
         }
     }
-
 
     private fun sortListPreferenceByEntries(preferenceKey: String) {
         val preference = findPreference<ListPreference?>(preferenceKey)
@@ -121,10 +119,9 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
         val currentValue = preference.value
         preference.entries = sortedLabels
         preference.entryValues = sortedValues
-        preference.value = currentValue // Restore value
+        preference.value = currentValue
     }
 
-    // Função downloadModel (ATUALIZADA com tema de overlay)
     private fun downloadModel(translateLanguageSelected: String, isFromLanguage: Boolean) {
         val translatorProvider = globalSettings?.getString("TranslatorProvider", "g") ?: "g"
 
@@ -197,11 +194,10 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
             .show()
     }
 
-    // Função auxiliar para habilitar/desabilitar prefs locais
     private fun enableLocalPrefs(enable: Boolean) {
         val keysToToggle = listOf(
-            "TranslateFromLanguage", "TranslateToLanguage", "SetText", "SetHint",
-            "LoadURL", "DrawText", "Notif", "Cache", "Scroll", "Delay", "DelayWebView"
+            "TranslateFromLanguage", "TranslateToLanguage", "TranslatorProvider", "SetText",
+            "SetHint", "LoadURL", "DrawText", "Notif", "Cache", "Scroll", "Delay", "DelayWebView"
         )
         keysToToggle.forEach { key ->
             findPreference<Preference>(key)?.isEnabled = enable
@@ -227,14 +223,11 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
 
         addPreferencesFromResource(R.xml.perappprefs)
 
-        // --- Configuração Inicial ---
         val isGloballyEnabled = globalSettings?.contains(applicationInfo!!.packageName) ?: false
         val overrideEnabled = localPrefs?.getBoolean("OverRide", false) ?: false
 
-        // <<-- CORREÇÃO AQUI: Usar SwitchPreference -->>
         findPreference<SwitchPreference>("LocalEnabled")?.isChecked = isGloballyEnabled
         findPreference<SwitchPreference>("OverRide")?.isChecked = overrideEnabled
-        // <<-- FIM DA CORREÇÃO -->>
 
         enableLocalPrefs(overrideEnabled)
 
@@ -243,13 +236,39 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
         sortListPreferenceByEntries("TranslateFromLanguage")
         sortListPreferenceByEntries("TranslateToLanguage")
 
-        // --- Listeners ---
-        // <<-- CORREÇÃO AQUI: Usar SwitchPreference -->>
+        // Configuração do provedor de tradução local
+        findPreference<ListPreference>("TranslatorProvider")?.apply {
+            setOnPreferenceChangeListener { preference, newValue ->
+                val provider = newValue as String
+                handleProviderChange(provider)
+
+                // Limpar cache ao trocar de provedor
+                preferenceManager.sharedPreferences?.edit()
+                    ?.putString("ClearCacheTime", System.currentTimeMillis().toString())
+                    ?.apply()
+
+                utils.debugLog("Cleared cache due to provider change to: $provider")
+                Toast.makeText(
+                    preference.context,
+                    R.string.clear_cache_success,
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                true
+            }
+
+            // Inicialização do valor correto
+            val localProvider = preferenceManager.sharedPreferences?.getString(
+                "TranslatorProvider",
+                globalSettings?.getString("TranslatorProvider", "g") ?: "g"
+            )
+            handleProviderChange(localProvider!!)
+        }
+
         findPreference<SwitchPreference>("OverRide")?.setOnPreferenceChangeListener { _, newValue ->
             enableLocalPrefs(newValue as Boolean)
             true
         }
-        // <<-- FIM DA CORREÇÃO -->>
 
         findPreference<ListPreference?>("TranslateFromLanguage")?.setOnPreferenceChangeListener { _, newValue ->
             val lang = newValue as String?
@@ -271,7 +290,6 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
             true
         }
 
-        // <<-- CORREÇÃO AQUI: Usar SwitchPreference -->>
         findPreference<SwitchPreference>("LocalEnabled")?.setOnPreferenceChangeListener { _, newValue ->
             val enabled = newValue as Boolean
             globalSettings?.edit()?.apply {
@@ -286,7 +304,6 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
             }
             true
         }
-        // <<-- FIM DA CORREÇÃO -->>
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
