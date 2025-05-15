@@ -21,6 +21,16 @@
     <integer name="default_delay">0</integer>
     <integer name="default_delay_webview">500</integer>
 
+    <string name="search">Search</string>
+    <string name="rate_now">Avaliar Agora</string>
+    <string name="later">Mais Tarde</string>
+
+    <string name="subRegion_yandex">Região da Chave Yandex</string>
+    <string name="subRegion_micro">Região da Chave Microsoft</string>
+    <string name="invalid_language_code">Código de idioma inválido para download do modelo</string>
+    <string name="subRegion_title">Região da Chave Microsoft/Yandex</string>
+    <string name="subRegion_summary">Insira a região associada à sua chave (ex: eastus, brazilsouth). Deixe em branco se não for regional.</string>
+
     <string name="app_name">"AllTrans"</string>
     <string name="loading">"Loading List of Applications - Please Wait"</string>
     <string name="clear_cache_success">"Please force-close the translated app! Translate Cache for this app will be erased next time the app starts!!"</string>
@@ -32,8 +42,8 @@
 
     <!-- activity_main toolbar -->
     <string name="translate_anywhere">"Translate Everywhere"</string>
-    <string name="apps_to_translate">"Apps to Translate"</string>
-    <string name="global_settings">"Global Settings"</string>
+    <string name="apps_to_translate">"Apps"</string>
+    <string name="global_settings">"Global"</string>
     <string name="instructions">"Instructions"</string>
 
     <!-- Feedback Dialog -->

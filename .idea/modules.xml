@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/AllTrans.iml" filepath="$PROJECT_DIR$/AllTrans.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/AllTrans.iml" filepath="$PROJECT_DIR$/.idea/modules/AllTrans.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/app/AllTrans.app.iml" filepath="$PROJECT_DIR$/.idea/modules/app/AllTrans.app.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/app/AllTrans.app.androidTest.iml" filepath="$PROJECT_DIR$/.idea/modules/app/AllTrans.app.androidTest.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/app/AllTrans.app.main.iml" filepath="$PROJECT_DIR$/.idea/modules/app/AllTrans.app.main.iml" />
