@@ -19,9 +19,12 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.TextView
 import android.widget.TextView.BufferType
+import androidx.core.net.toUri
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
+import java.io.EOFException
+import java.io.File
 import java.io.FileInputStream
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
@@ -32,7 +35,7 @@ import java.io.ObjectOutputStream
 internal class AttachBaseContextHookHandler : XC_MethodHook() {
     override fun afterHookedMethod(methodHookParam: MethodHookParam) {
         try {
-            if (methodHookParam.args == null || methodHookParam.args.size == 0 || (methodHookParam.args[0] !is Context)) {
+            if (methodHookParam.args == null || methodHookParam.args.isEmpty() || (methodHookParam.args[0] !is Context)) {
                 utils.debugLog("AllTrans: Invalid args in attachBaseContext hook.")
                 return
             }
@@ -140,7 +143,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 // Tentar primeiro via proxy
                 if (alltrans.isProxyEnabled) {
                     try {
-                        val proxyUri = Uri.parse("content://settings/system/alltransProxyProviderURI/akhil.alltrans.sharedPrefProvider/$packageName")
+                        val proxyUri = "content://settings/system/alltransProxyProviderURI/akhil.alltrans.sharedPrefProvider/$packageName".toUri()
                         cursor = context.contentResolver.query(proxyUri, null, null, null, null)
                         if (cursor != null && cursor.moveToFirst()) {
                             val dataColumnIndex = 0
@@ -167,7 +170,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 // Se o proxy falhar, tentar conexão direta
                 if (globalPref == null) {
                     try {
-                        val directUri = Uri.parse("content://akhil.alltrans.sharedPrefProvider/$packageName")
+                        val directUri = "content://akhil.alltrans.sharedPrefProvider/$packageName".toUri()
                         cursor = context.contentResolver.query(directUri, null, null, null, null)
                         if (cursor != null && cursor.moveToFirst()) {
                             val dataColumnIndex = 0
@@ -355,46 +358,84 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
         }
 
         /**
-         * Carrega o cache do disco
+         * Carrega o cache do disco com melhor tratamento de erros
          */
         private fun loadCacheFromDisk(context: Context) {
             var fis: FileInputStream? = null
             var ois: ObjectInputStream? = null
-            try {
-                fis = context.openFileInput("AllTransCache")
-                ois = ObjectInputStream(fis)
-                alltrans.cacheAccess.acquireUninterruptibly()
+            var semaphoreAcquired = false
 
-                // Criar referência de cache se for nula
-                if (alltrans.cache == null) {
-                    alltrans.cache = HashMap()
+            // Certifica-se de que o cache esteja inicializado mesmo antes de tentar ler
+            if (alltrans.cache == null) {
+                alltrans.cache = HashMap()
+            }
+
+            try {
+                // Verifica se o arquivo tem tamanho válido antes de tentar ler
+                val cacheFile = File(context.filesDir, "AllTransCache")
+                if (!cacheFile.exists() || cacheFile.length() == 0L) {
+                    utils.debugLog("Cache file not found or empty, starting fresh.")
+                    return
                 }
 
-                // Limpar e atualizar o cache
+                // Abrir o arquivo e obter o stream
+                try {
+                    fis = context.openFileInput("AllTransCache")
+                } catch (fnf: FileNotFoundException) {
+                    utils.debugLog("Cache file not found, starting fresh.")
+                    return
+                }
+
+                // Tenta adquirir o semáforo antes de qualquer operação de leitura
+                alltrans.cacheAccess.acquireUninterruptibly()
+                semaphoreAcquired = true
+
+                // Limpar o cache existente
                 val cacheRef = alltrans.cache
                 cacheRef?.clear()
 
-                // Ler os dados em cache - Com verificação de tipo
-                val readObj = ois.readObject()
-                if (readObj is HashMap<*, *>) {
-                    // Verificação de tipo antes do cast
-                    @Suppress("UNCHECKED_CAST")
-                    val typedMap = readObj as HashMap<String?, String?>
-                    cacheRef?.putAll(typedMap)
-                    utils.debugLog("Cache loaded successfully. Size: ${cacheRef?.size ?: 0}")
-                } else {
-                    utils.debugLog("Cache object is not of type HashMap<String?, String?>")
+                try {
+                    // Tenta criar o ObjectInputStream com verificação de validez
+                    ois = ObjectInputStream(fis)
+
+                    // Ler os dados com verificações adicionais de segurança
+                    val readObj = ois.readObject()
+                    if (readObj is HashMap<*, *>) {
+                        // Verificação de tipo antes do cast
+                        @Suppress("UNCHECKED_CAST")
+                        val typedMap = readObj as HashMap<String?, String?>
+                        cacheRef?.putAll(typedMap)
+                        utils.debugLog("Cache loaded successfully. Size: ${cacheRef?.size ?: 0}")
+                    } else {
+                        utils.debugLog("Cache object is not of type HashMap<String?, String?>")
+                    }
+                } catch (e: ClassNotFoundException) {
+                    utils.debugLog("Cache format incompatible: ${e.message}")
+                    // Deleta o arquivo incompatível
+                    context.deleteFile("AllTransCache")
+                } catch (e: EOFException) {
+                    utils.debugLog("Cache file corrupt (EOF): ${e.message}")
+                    // Deleta o arquivo corrompido
+                    context.deleteFile("AllTransCache")
+                } catch (e: IOException) {
+                    utils.debugLog("IO error reading cache: ${e.message}")
+                    // Deleta o arquivo potencialmente corrompido
+                    context.deleteFile("AllTransCache")
                 }
-            } catch (fnf: FileNotFoundException) {
-                utils.debugLog("Cache file not found, starting fresh.")
-                if (alltrans.cache == null) alltrans.cache = HashMap()
             } catch (e: Throwable) {
-                utils.debugLog("Error reading cache: ${Log.getStackTraceString(e)}")
-                if (alltrans.cache == null) alltrans.cache = HashMap()
+                utils.debugLog("Error reading cache: ${e.message}")
+                // Tenta deletar o arquivo potencialmente corrompido
+                try {
+                    context.deleteFile("AllTransCache")
+                    utils.debugLog("Deleted potentially corrupted cache file.")
+                } catch (ignored: Exception) {}
             } finally {
+                // Garantir que os recursos sejam fechados corretamente
                 try { ois?.close() } catch (ignored: IOException) {}
                 try { fis?.close() } catch (ignored: IOException) {}
-                if (alltrans.cacheAccess.availablePermits() == 0) {
+
+                // Libera o semáforo apenas se ele foi adquirido
+                if (semaphoreAcquired && alltrans.cacheAccess.availablePermits() == 0) {
                     alltrans.cacheAccess.release()
                 }
             }
@@ -553,23 +594,20 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                     )
                 }
 
-                // Hooks para API 29+
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    utils.tryHookMethod(
-                        canvasClass,
-                        "drawTextRun",
-                        MeasuredText::class.java,
-                        Int::class.javaPrimitiveType,
-                        Int::class.javaPrimitiveType,
-                        Int::class.javaPrimitiveType,
-                        Int::class.javaPrimitiveType,
-                        Float::class.javaPrimitiveType,
-                        Float::class.javaPrimitiveType,
-                        Boolean::class.javaPrimitiveType,
-                        Paint::class.java,
-                        alltrans.drawTextHook
-                    )
-                }
+                utils.tryHookMethod(
+                    canvasClass,
+                    "drawTextRun",
+                    MeasuredText::class.java,
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType,
+                    Float::class.javaPrimitiveType,
+                    Float::class.javaPrimitiveType,
+                    Boolean::class.javaPrimitiveType,
+                    Paint::class.java,
+                    alltrans.drawTextHook
+                )
             }
         }
 
@@ -609,7 +647,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
         /**
          * Limpa o cache se necessário com base no tempo
          */
-        fun clearCacheIfNeeded(context: Context?, cachingTime: Long) {
+        private fun clearCacheIfNeeded(context: Context?, cachingTime: Long) {
             if (cachingTime <= 0L || context == null) return
 
             alltrans.cacheAccess.acquireUninterruptibly()

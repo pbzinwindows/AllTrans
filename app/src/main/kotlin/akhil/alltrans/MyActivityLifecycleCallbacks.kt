@@ -5,12 +5,14 @@ import android.app.Application.ActivityLifecycleCallbacks
 import android.content.Context
 import android.os.Bundle
 import android.util.Log
+import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.ObjectOutputStream
+import java.nio.channels.FileChannel
 
 internal class MyActivityLifecycleCallbacks : ActivityLifecycleCallbacks {
-    // ... (outros métodos como antes) ...
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
     override fun onActivityStarted(activity: Activity) {}
     override fun onActivityResumed(activity: Activity) {}
@@ -18,49 +20,77 @@ internal class MyActivityLifecycleCallbacks : ActivityLifecycleCallbacks {
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
     override fun onActivityStopped(activity: Activity) {}
 
-
     override fun onActivityDestroyed(activity: Activity) {
-        if (PreferenceList.Caching && alltrans.Companion.cache != null && alltrans.Companion.cache?.isEmpty() == false) {
-            val appContext = activity.getApplicationContext()
-            if (appContext == null) {
-                utils.debugLog("Cannot save cache on destroy: application context is null.")
-                return
-            }
+        if (PreferenceList.Caching && alltrans.cache != null && alltrans.cache?.isEmpty() == false) {
+            val appContext = activity.applicationContext
 
-            var fileOutputStream: FileOutputStream? = null
-            var objectOutputStream: ObjectOutputStream? = null
-            alltrans.Companion.cacheAccess.acquireUninterruptibly()
+            alltrans.cacheAccess.acquireUninterruptibly()
             try {
                 utils.debugLog("Trying to write cache on activity destroy...")
-                fileOutputStream = appContext.openFileOutput("AllTransCache", Context.MODE_PRIVATE)
-                objectOutputStream = ObjectOutputStream(fileOutputStream)
 
-                // Use safe call with let to handle null case
-                alltrans.Companion.cache?.let { cache ->
-                    // Salvar uma cópia do HashMap (agora compila)
-                    objectOutputStream.writeObject(HashMap<String?, String?>(cache))
-                    utils.debugLog("Cache saved successfully on activity destroy.")
-                } ?: run {
-                    utils.debugLog("Cache is null, nothing to save.")
+                // Escrever em um arquivo temporário primeiro para evitar corrupção
+                val tempFile = File(appContext.cacheDir, "AllTransCache.tmp")
+                val finalFile = File(appContext.filesDir, "AllTransCache")
+
+                try {
+                    FileOutputStream(tempFile).use { fileOut ->
+                        ObjectOutputStream(fileOut).use { objectOut ->
+                            // Use safe call com let para tratar caso nulo
+                            alltrans.cache?.let { cache ->
+                                if (cache.isNotEmpty()) {
+                                    // Salvar uma cópia do HashMap
+                                    objectOut.writeObject(HashMap(cache))
+                                    objectOut.flush()
+                                    fileOut.flush()
+
+                                    utils.debugLog("Cache written to temp file. Size: ${cache.size}")
+                                } else {
+                                    utils.debugLog("Cache is empty, nothing to save.")
+                                }
+                            } ?: utils.debugLog("Cache is null, nothing to save.")
+                        }
+                    }
+
+                    // Arquivo temporário escrito com sucesso, agora move para o local permanente
+                    if (tempFile.renameTo(finalFile)) {
+                        utils.debugLog("Cache saved successfully on activity destroy. Size: ${alltrans.cache?.size ?: 0}")
+                    } else {
+                        // Se renomear falhar, tenta copiar o conteúdo
+                        copyFile(tempFile, finalFile)
+                        utils.debugLog("Cache saved via copy on activity destroy. Size: ${alltrans.cache?.size ?: 0}")
+                    }
+                } catch (e: IOException) {
+                    utils.debugLog("Error saving cache file: ${Log.getStackTraceString(e)}")
+                    try { tempFile.delete() } catch (ignored: Exception) {}
                 }
-
             } catch (e: Throwable) {
                 utils.debugLog(
-                    "Got error saving cache in onActivityDestroyed: " + Log.getStackTraceString(
-                        e
-                    )
+                    "Got error saving cache in onActivityDestroyed: " + Log.getStackTraceString(e)
                 )
             } finally {
-                try {
-                    if (objectOutputStream != null) objectOutputStream.close()
-                } catch (ignored: IOException) {
+                if (alltrans.cacheAccess.availablePermits() == 0) {
+                    alltrans.cacheAccess.release()
                 }
-                try {
-                    if (fileOutputStream != null) fileOutputStream.close()
-                } catch (ignored: IOException) {
-                }
-                if (alltrans.Companion.cacheAccess.availablePermits() == 0) alltrans.Companion.cacheAccess.release()
             }
+        }
+    }
+
+    /**
+     * Copia o conteúdo de um arquivo para outro
+     */
+    private fun copyFile(source: File, dest: File) {
+        try {
+            FileInputStream(source).use { inputStream ->
+                FileOutputStream(dest).use { outputStream ->
+                    val sourceChannel = inputStream.channel
+                    val destChannel = outputStream.channel
+                    destChannel.transferFrom(sourceChannel, 0, sourceChannel.size())
+                }
+            }
+            // Tenta excluir o arquivo temporário após a cópia bem-sucedida
+            try { source.delete() } catch (ignored: Exception) {}
+        } catch (e: IOException) {
+            utils.debugLog("Error copying cache file: ${Log.getStackTraceString(e)}")
         }
     }
 }
