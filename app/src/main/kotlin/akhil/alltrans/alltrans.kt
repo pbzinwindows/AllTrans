@@ -134,26 +134,46 @@ class alltrans : IXposedHookLoadPackage {
                 utils.debugLog("AllTrans: WebView class found in " + packageName)
 
                 // Hook de onDetachedFromWindow para limpeza de instâncias
+                // Nota: este método é herdado de View, então vamos tentar abordagens diferentes
                 try {
-                    utils.tryHookMethod(
-                        webViewClass,
-                        "onDetachedFromWindow",
-                        object : XC_MethodHook() {
-                            @Throws(Throwable::class)
-                            override fun beforeHookedMethod(param: MethodHookParam) {
-                                val webView = param.thisObject as? WebView
-                                if (webView != null) {
-                                    val removedInstance = webViewHookInstances.remove(webView)
-                                    if (removedInstance != null) {
-                                        utils.debugLog("AllTrans: Cleaned up WebView instance on detach: " + webView.hashCode())
-                                    }
+                    // Abordagem 1: Usar XposedBridge.hookAllMethods para capturar todas as variantes
+                    XposedBridge.hookAllMethods(webViewClass, "onDetachedFromWindow", object : XC_MethodHook() {
+                        @Throws(Throwable::class)
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            val webView = param.thisObject as? WebView
+                            if (webView != null) {
+                                val removedInstance = webViewHookInstances.remove(webView)
+                                if (removedInstance != null) {
+                                    utils.debugLog("AllTrans: Cleaned up WebView instance on detach: " + webView.hashCode())
                                 }
                             }
                         }
-                    )
-                    utils.debugLog("AllTrans: WebView.onDetachedFromWindow hook applied successfully")
+                    })
+                    utils.debugLog("AllTrans: WebView.onDetachedFromWindow hook applied successfully via hookAllMethods")
                 } catch (e: Throwable) {
-                    utils.debugLog("AllTrans: Failed to hook WebView.onDetachedFromWindow: " + e.message)
+                    utils.debugLog("AllTrans: Failed to hook WebView.onDetachedFromWindow via hookAllMethods: " + e.message)
+                    try {
+                        // Abordagem 2: Tentar usar a superclasse View que contém este método
+                        val viewClass = lpparam.classLoader.loadClass("android.view.View")
+                        XposedBridge.hookMethod(
+                            viewClass.getDeclaredMethod("onDetachedFromWindow"),
+                            object : XC_MethodHook() {
+                                @Throws(Throwable::class)
+                                override fun beforeHookedMethod(param: MethodHookParam) {
+                                    if (param.thisObject is WebView) {
+                                        val webView = param.thisObject as WebView
+                                        val removedInstance = webViewHookInstances.remove(webView)
+                                        if (removedInstance != null) {
+                                            utils.debugLog("AllTrans: Cleaned up WebView instance on detach via View hook: " + webView.hashCode())
+                                        }
+                                    }
+                                }
+                            }
+                        )
+                        utils.debugLog("AllTrans: View.onDetachedFromWindow hook applied successfully for WebView")
+                    } catch (e2: Throwable) {
+                        utils.debugLog("AllTrans: Failed all attempts to hook onDetachedFromWindow: " + e2.message)
+                    }
                 }
             } catch (e: ClassNotFoundException) {
                 utils.debugLog("AllTrans: WebView class not found in " + packageName)
@@ -294,7 +314,7 @@ class alltrans : IXposedHookLoadPackage {
                             return
                         }
 
-                        // Fix for the first warning - safely cast projection
+                        // Fix para o primeiro warning - safely cast projection
                         val projectionArg = param.args[1]
                         val projection = if (projectionArg is Array<*>) {
                             @Suppress("UNCHECKED_CAST")
@@ -305,7 +325,7 @@ class alltrans : IXposedHookLoadPackage {
                         var selection: String? = null
                         var selectionArgs: Array<String?>? = null
                         var sortOrder: String? = null
-                        val paramTypes = (param.method as Method).getParameterTypes()
+                        val paramTypes = (param.method as Method).parameterTypes
                         var cancellationSignal: CancellationSignal? = null
 
                         for (arg in param.args) {
@@ -326,12 +346,12 @@ class alltrans : IXposedHookLoadPackage {
                                     queryArgs.getString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER)
                             }
                             XposedBridge.log("AllTrans Proxy Hook: Querying using Bundle signature.")
-                            cursor = providerContext.getContentResolver()
+                            cursor = providerContext.contentResolver
                                 .query(new_uri, projection, queryArgs, cancellationSignal)
                         } else if (paramTypes.size > 4) {
                             selection = param.args[2] as String?
 
-                            // Fix for the second warning - safely cast selectionArgs
+                            // Fix para o segundo warning - safely cast selectionArgs
                             val selectionArgsArg = param.args[3]
                             selectionArgs = if (selectionArgsArg is Array<*>) {
                                 @Suppress("UNCHECKED_CAST")
@@ -340,7 +360,7 @@ class alltrans : IXposedHookLoadPackage {
 
                             sortOrder = param.args[4] as String?
                             XposedBridge.log("AllTrans Proxy Hook: Querying using String signature.")
-                            cursor = providerContext.getContentResolver().query(
+                            cursor = providerContext.contentResolver.query(
                                 new_uri,
                                 projection,
                                 selection,
@@ -350,19 +370,19 @@ class alltrans : IXposedHookLoadPackage {
                             )
                         } else {
                             XposedBridge.log("AllTrans Proxy Hook: Querying using simpler signature.")
-                            cursor = providerContext.getContentResolver()
+                            cursor = providerContext.contentResolver
                                 .query(new_uri, projection, null, null, null)
                         }
                         param.setResult(cursor)
                         XposedBridge.log(
-                            "AllTrans Proxy Hook: Setting query result (" + (if (cursor != null) cursor.getCount()
+                            "AllTrans Proxy Hook: Setting query result (" + (if (cursor != null) cursor.count
                                 .toString() + " rows" else "null") + ")."
                         )
                     } catch (ex: Throwable) {
                         XposedBridge.log("AllTrans Proxy Hook: Error during proxy query execution!")
                         XposedBridge.log(ex)
                         param.setResult(null)
-                        if (cursor != null && !cursor.isClosed()) cursor.close()
+                        if (cursor != null && !cursor.isClosed) cursor.close()
                     } finally {
                         Binder.restoreCallingIdentity(ident)
                     }
@@ -410,7 +430,7 @@ class alltrans : IXposedHookLoadPackage {
                 val extras: Bundle?
                 var originalUri: Uri? = null
 
-                val paramTypes = (param.method as Method).getParameterTypes()
+                val paramTypes = (param.method as Method).parameterTypes
                 if (paramTypes.size == 4 && paramTypes[0] == String::class.java && paramTypes[1] == String::class.java && paramTypes[2] == String::class.java) {
                     authority = param.args[0] as String?
                     method = param.args[1] as String?
@@ -507,7 +527,7 @@ class alltrans : IXposedHookLoadPackage {
                         }
 
                         XposedBridge.log("AllTrans Proxy Hook: Calling actual provider: " + originalUri + ", Method: " + originalMethod + ", Arg: " + originalArg)
-                        resultBundle = providerContext.getContentResolver()
+                        resultBundle = providerContext.contentResolver
                             .call(originalUri, originalMethod, originalArg, extras)
                         param.setResult(resultBundle)
                         XposedBridge.log("AllTrans Proxy Hook: Setting call result: " + resultBundle)
@@ -540,7 +560,7 @@ class alltrans : IXposedHookLoadPackage {
         var baseRecordingCanvas: Class<*>? = null
         var settingsHooked: Boolean = false
 
-        var androidVersion15OrAbove: Boolean = Build.VERSION.SDK_INT >= 35
+        var androidVersion15OrAbove: Boolean = Build.VERSION.SDK_INT >= 35 // Android 15 (VanillaIceCream)
         var isProxyEnabled: Boolean = true
 
         val pendingTextViewTranslations: MutableSet<Int?> = Collections.synchronizedSet<Int?>(
@@ -551,6 +571,11 @@ class alltrans : IXposedHookLoadPackage {
         var WEBVIEW_HOOK_TAG_KEY: Int = 0x7f080001 // Valor arbitrário não-zero como fallback
         private var tagKeyInitialized = false
         private var MODULE_PATH: String? = null
+
+        // *** INÍCIO DA MODIFICAÇÃO 2.B ***
+        // Chave para a tag temporária em TextViews durante o callback
+        const val ALLTRANS_CALLBACK_SETTING_FLAG_KEY = 0x7A117AA0 // Exemplo de ID único
+        // *** FIM DA MODIFICAÇÃO 2.B ***
 
         val webViewHookInstances: MutableMap<WebView?, VirtWebViewOnLoad?> =
             Collections.synchronizedMap<WebView?, VirtWebViewOnLoad?>(
