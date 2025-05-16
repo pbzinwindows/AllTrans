@@ -1,3 +1,4 @@
+// AttachBaseContextHookHandler.kt (com correção)
 package akhil.alltrans
 
 import android.app.Notification
@@ -35,6 +36,8 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 utils.debugLog("AllTrans: Invalid args in attachBaseContext hook.")
                 return
             }
+
+            // Obter contexto base dos argumentos
             val baseContext = methodHookParam.args[0] as Context
             val packageName = baseContext.packageName
 
@@ -46,36 +49,67 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
 
             utils.debugLog("AllTrans: in after attachBaseContext of ContextWrapper for package $packageName")
 
-            // Obter o contexto da aplicação
-            var applicationContext = baseContext.applicationContext
-            if (applicationContext == null) {
-                if (methodHookParam.thisObject is ContextWrapper) {
-                    try {
-                        applicationContext = (methodHookParam.thisObject as ContextWrapper).applicationContext
-                    } catch (e: Exception) {
-                        utils.debugLog("AllTrans: Error getting context from thisObject in attachBaseContext.")
+            // Tentativa progressiva de obter um contexto válido
+            var usableContext: Context? = null
+
+            // 1. Tentar primeiro o applicationContext do baseContext
+            val appContext = baseContext.applicationContext
+            if (appContext != null) {
+                usableContext = appContext
+                utils.debugLog("AllTrans: Got application context from baseContext")
+            }
+            // 2. Se nulo, tentar o thisObject como ContextWrapper
+            else if (methodHookParam.thisObject is ContextWrapper) {
+                try {
+                    val wrapper = methodHookParam.thisObject as ContextWrapper
+                    val wrapperAppContext = wrapper.applicationContext
+                    if (wrapperAppContext != null) {
+                        usableContext = wrapperAppContext
+                        utils.debugLog("AllTrans: Got application context from ContextWrapper.thisObject")
                     }
+                } catch (e: Exception) {
+                    utils.debugLog("AllTrans: Error accessing ContextWrapper.applicationContext: ${e.message}")
                 }
-                if (applicationContext == null) {
-                    utils.debugLog("AllTrans: returning because application context is null for package $packageName")
-                    return
+
+                // 3. Se ainda nulo, usar o próprio baseContext como fallback
+                if (usableContext == null) {
+                    usableContext = baseContext
+                    utils.debugLog("AllTrans: Using baseContext directly as fallback")
                 }
+            }
+
+            // Se ainda não temos contexto utilizável, log e retornar
+            if (usableContext == null) {
+                utils.debugLog("AllTrans: Unable to find a usable context for package $packageName")
+                return
             }
 
             // Define o contexto global se ainda não estiver definido
-            if (alltrans.Companion.context == null) {
-                alltrans.Companion.context = applicationContext
+            if (alltrans.context == null) {
+                alltrans.context = usableContext
                 utils.debugLog("AllTrans: Application context set successfully from attachBaseContext for package: $packageName")
             }
 
-            // Sempre tenta inicializar a chave da tag
-            alltrans.Companion.initializeTagKeyIfNeeded()
+            // Inicializar a chave da tag
+            alltrans.initializeTagKeyIfNeeded()
 
-            // Continua com a leitura das preferências e aplicação dos hooks
-            readPrefAndHook(applicationContext)
+            // *** NOVA VERIFICAÇÃO PARA EVITAR CHAMADA PARA O PRÓPRIO PACOTE ***
+            if (packageName != "akhil.alltrans") {
+                try {
+                    readPrefAndHook(usableContext)
+                } catch (e: Throwable) {
+                    utils.debugLog("AllTrans: Error in readPrefAndHook from attachBaseContext: ${e.message}")
+                    // Não propagar a exceção, permitindo que o aplicativo continue inicializando
+                }
+            } else {
+                utils.debugLog("AllTrans: Skipping readPrefAndHook for own package $packageName in attachBaseContext.")
+                // Para o próprio pacote AllTrans, podemos querer fazer outras inicializações mínimas se necessário,
+                // mas NÃO ler preferências via ContentProvider que ele mesmo está tentando publicar.
+            }
         } catch (e: Throwable) {
             utils.debugLog("Caught Exception in attachBaseContext ${Log.getStackTraceString(e)}")
             XposedBridge.log(e)
+            // Não propagar a exceção, permitindo que o aplicativo continue inicializando
         }
     }
 
@@ -104,7 +138,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
 
             try {
                 // Tentar primeiro via proxy
-                if (alltrans.Companion.isProxyEnabled) {
+                if (alltrans.isProxyEnabled) {
                     try {
                         val proxyUri = Uri.parse("content://settings/system/alltransProxyProviderURI/akhil.alltrans.sharedPrefProvider/$packageName")
                         cursor = context.contentResolver.query(proxyUri, null, null, null, null)
@@ -157,7 +191,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 // Retornar os resultados
                 if (globalPref != null) {
                     resultBundle.putString("globalPref", globalPref)
-                    resultBundle.putString("localPref", localPref ?: globalPref)
+                    resultBundle.putString("localPref", localPref ?: "")
                     return resultBundle
                 } else {
                     Log.e("AllTrans", "Failed to get prefs for $packageName")
@@ -168,9 +202,13 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
             }
         }
 
-        // Função readPrefAndHook otimizada
+        // Função readPrefAndHook otimizada com melhor tratamento de erros
         fun readPrefAndHook(context: Context?) {
-            if (context == null) return
+            if (context == null) {
+                utils.debugLog("AllTrans: readPrefAndHook called with null context")
+                return
+            }
+
             val packageName = context.packageName
             utils.debugLog("readPrefAndHook for $packageName")
 
@@ -181,30 +219,73 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
             }
 
             // Obter preferências
-            val prefsBundle = getPreferencesViaProviders(context, packageName) ?: return
-            val globalPref = prefsBundle.getString("globalPref")
-            val localPref = prefsBundle.getString("localPref")
-            if (globalPref == null || localPref == null) return
+            try {
+                val prefsBundle = getPreferencesViaProviders(context, packageName)
+                if (prefsBundle == null) {
+                    utils.debugLog("AllTrans: No preferences found for $packageName, skipping hooks")
+                    return
+                }
 
-            // Aplicar preferências
-            PreferenceList.getPref(globalPref, localPref, packageName)
-            utils.Debug = PreferenceList.Debug
+                val globalPref = prefsBundle.getString("globalPref")
+                val localPref = prefsBundle.getString("localPref")
 
-            // Verificar se o módulo está habilitado para este pacote
-            if (!PreferenceList.Enabled || !PreferenceList.LocalEnabled) {
-                utils.debugLog("AllTrans disabled for $packageName")
-                return
+                if (globalPref.isNullOrEmpty()) {
+                    utils.debugLog("AllTrans: Empty global preferences for $packageName, skipping hooks")
+                    return
+                }
+
+                // Aplicar preferências
+                try {
+                    PreferenceList.getPref(globalPref, localPref ?: "", packageName)
+                    utils.Debug = PreferenceList.Debug
+                } catch (e: Exception) {
+                    utils.debugLog("AllTrans: Error applying preferences: ${e.message}")
+                    return
+                }
+
+                // Verificar se o módulo está habilitado para este pacote
+                if (!PreferenceList.Enabled || !PreferenceList.LocalEnabled) {
+                    utils.debugLog("AllTrans disabled for $packageName")
+                    return
+                }
+                utils.debugLog("AllTrans Enabled for $packageName")
+
+                // Gerenciar cache
+                try {
+                    manageCache(context)
+                } catch (e: Exception) {
+                    utils.debugLog("AllTrans: Error managing cache: ${e.message}")
+                    // Continuar mesmo com erro de cache
+                }
+
+                // Aplicar hooks baseados nas preferências
+                try {
+                    applyTextViewHooks()
+                } catch (e: Exception) {
+                    utils.debugLog("AllTrans: Error applying TextView hooks: ${e.message}")
+                }
+
+                try {
+                    applyWebViewHooks(packageName)
+                } catch (e: Exception) {
+                    utils.debugLog("AllTrans: Error applying WebView hooks: ${e.message}")
+                }
+
+                try {
+                    applyDrawTextHooks()
+                } catch (e: Exception) {
+                    utils.debugLog("AllTrans: Error applying DrawText hooks: ${e.message}")
+                }
+
+                try {
+                    applyNotificationHooks()
+                } catch (e: Exception) {
+                    utils.debugLog("AllTrans: Error applying Notification hooks: ${e.message}")
+                }
+
+            } catch (e: Exception) {
+                utils.debugLog("AllTrans: Error in readPrefAndHook main flow: ${Log.getStackTraceString(e)}")
             }
-            utils.debugLog("AllTrans Enabled for $packageName")
-
-            // Gerenciar cache
-            manageCache(context)
-
-            // Aplicar hooks baseados nas preferências
-            applyTextViewHooks()
-            applyWebViewHooks(packageName)
-            applyDrawTextHooks()
-            applyNotificationHooks()
         }
 
         /**
@@ -257,17 +338,17 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 loadCacheFromDisk(context)
             } else {
                 // Limpar o cache se o caching estiver desativado
-                alltrans.Companion.cacheAccess.acquireUninterruptibly()
+                alltrans.cacheAccess.acquireUninterruptibly()
                 try {
-                    if (alltrans.Companion.cache == null) {
-                        alltrans.Companion.cache = HashMap()
+                    if (alltrans.cache == null) {
+                        alltrans.cache = HashMap()
                     } else {
-                        alltrans.Companion.cache?.clear()
+                        alltrans.cache?.clear()
                     }
                     utils.debugLog("Caching disabled, cache cleared.")
                 } finally {
-                    if (alltrans.Companion.cacheAccess.availablePermits() == 0) {
-                        alltrans.Companion.cacheAccess.release()
+                    if (alltrans.cacheAccess.availablePermits() == 0) {
+                        alltrans.cacheAccess.release()
                     }
                 }
             }
@@ -282,15 +363,15 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
             try {
                 fis = context.openFileInput("AllTransCache")
                 ois = ObjectInputStream(fis)
-                alltrans.Companion.cacheAccess.acquireUninterruptibly()
+                alltrans.cacheAccess.acquireUninterruptibly()
 
                 // Criar referência de cache se for nula
-                if (alltrans.Companion.cache == null) {
-                    alltrans.Companion.cache = HashMap()
+                if (alltrans.cache == null) {
+                    alltrans.cache = HashMap()
                 }
 
                 // Limpar e atualizar o cache
-                val cacheRef = alltrans.Companion.cache
+                val cacheRef = alltrans.cache
                 cacheRef?.clear()
 
                 // Ler os dados em cache - Com verificação de tipo
@@ -306,14 +387,16 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 }
             } catch (fnf: FileNotFoundException) {
                 utils.debugLog("Cache file not found, starting fresh.")
-                if (alltrans.Companion.cache == null) alltrans.Companion.cache = HashMap()
+                if (alltrans.cache == null) alltrans.cache = HashMap()
             } catch (e: Throwable) {
                 utils.debugLog("Error reading cache: ${Log.getStackTraceString(e)}")
-                if (alltrans.Companion.cache == null) alltrans.Companion.cache = HashMap()
+                if (alltrans.cache == null) alltrans.cache = HashMap()
             } finally {
                 try { ois?.close() } catch (ignored: IOException) {}
                 try { fis?.close() } catch (ignored: IOException) {}
-                if (alltrans.Companion.cacheAccess.availablePermits() == 0) alltrans.Companion.cacheAccess.release()
+                if (alltrans.cacheAccess.availablePermits() == 0) {
+                    alltrans.cacheAccess.release()
+                }
             }
         }
 
@@ -373,9 +456,9 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
          * Aplica hooks aos métodos DrawText
          */
         private fun applyDrawTextHooks() {
-            if (PreferenceList.DrawText && alltrans.Companion.baseRecordingCanvas != null) {
+            if (PreferenceList.DrawText && alltrans.baseRecordingCanvas != null) {
                 utils.debugLog("Applying DrawText hooks")
-                val canvasClass: Class<*>? = alltrans.Companion.baseRecordingCanvas
+                val canvasClass: Class<*>? = alltrans.baseRecordingCanvas
 
                 // Hooks básicos de desenho de texto
                 utils.tryHookMethod(
@@ -387,7 +470,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                     Float::class.javaPrimitiveType,
                     Float::class.javaPrimitiveType,
                     Paint::class.java,
-                    alltrans.Companion.drawTextHook
+                    alltrans.drawTextHook
                 )
 
                 utils.tryHookMethod(
@@ -397,7 +480,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                     Float::class.javaPrimitiveType,
                     Float::class.javaPrimitiveType,
                     Paint::class.java,
-                    alltrans.Companion.drawTextHook
+                    alltrans.drawTextHook
                 )
 
                 utils.tryHookMethod(
@@ -409,7 +492,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                     Float::class.javaPrimitiveType,
                     Float::class.javaPrimitiveType,
                     Paint::class.java,
-                    alltrans.Companion.drawTextHook
+                    alltrans.drawTextHook
                 )
 
                 utils.tryHookMethod(
@@ -421,7 +504,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                     Float::class.javaPrimitiveType,
                     Float::class.javaPrimitiveType,
                     Paint::class.java,
-                    alltrans.Companion.drawTextHook
+                    alltrans.drawTextHook
                 )
 
                 // Hooks para API 23+
@@ -436,7 +519,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                         Float::class.javaPrimitiveType,
                         Int::class.javaPrimitiveType,
                         Paint::class.java,
-                        alltrans.Companion.drawTextHook
+                        alltrans.drawTextHook
                     )
 
                     utils.tryHookMethod(
@@ -451,7 +534,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                         Float::class.javaPrimitiveType,
                         Boolean::class.javaPrimitiveType,
                         Paint::class.java,
-                        alltrans.Companion.drawTextHook
+                        alltrans.drawTextHook
                     )
 
                     utils.tryHookMethod(
@@ -466,7 +549,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                         Float::class.javaPrimitiveType,
                         Boolean::class.javaPrimitiveType,
                         Paint::class.java,
-                        alltrans.Companion.drawTextHook
+                        alltrans.drawTextHook
                     )
                 }
 
@@ -484,7 +567,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                         Float::class.javaPrimitiveType,
                         Boolean::class.javaPrimitiveType,
                         Paint::class.java,
-                        alltrans.Companion.drawTextHook
+                        alltrans.drawTextHook
                     )
                 }
             }
@@ -501,7 +584,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 XposedBridge.hookAllMethods(
                     NotificationManager::class.java,
                     "notify",
-                    alltrans.Companion.notifyHook
+                    alltrans.notifyHook
                 )
 
                 // Hook para API 21+
@@ -514,7 +597,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                             Int::class.javaPrimitiveType,
                             Notification::class.java,
                             UserHandle::class.java,
-                            alltrans.Companion.notifyHook
+                            alltrans.notifyHook
                         )
                     } catch (t: Throwable) {
                         utils.debugLog("notifyAsUser hook failed (might not exist): ${t.message}")
@@ -529,7 +612,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
         fun clearCacheIfNeeded(context: Context?, cachingTime: Long) {
             if (cachingTime <= 0L || context == null) return
 
-            alltrans.Companion.cacheAccess.acquireUninterruptibly()
+            alltrans.cacheAccess.acquireUninterruptibly()
             var lastClearTime: Long = 0
             var fis: FileInputStream? = null
             var ois: ObjectInputStream? = null
@@ -561,7 +644,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
 
                     // Limpar o arquivo de cache e o objeto cache em memória
                     context.deleteFile("AllTransCache")
-                    alltrans.Companion.cache?.clear()
+                    alltrans.cache?.clear()
                     utils.debugLog("Cache cleared successfully.")
                 } catch (e: Throwable) {
                     Log.e("AllTrans", "Error clearing cache", e)
@@ -573,9 +656,9 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 utils.debugLog("No need to clear cache. Time since last clear: ${timeSinceLastClear}ms")
             }
 
-            if (alltrans.Companion.cacheAccess.availablePermits() == 0) {
-                alltrans.Companion.cacheAccess.release()
+            if (alltrans.cacheAccess.availablePermits() == 0) {
+                alltrans.cacheAccess.release()
             }
         }
     }
-} // Fim da classe AttachBaseContextHookHandler
+}
