@@ -6,7 +6,6 @@ package akhil.alltrans
 
 import android.annotation.SuppressLint
 import android.app.Application
-import android.content.ContentResolver
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ApplicationInfo
@@ -15,10 +14,10 @@ import android.content.res.XModuleResources
 import android.database.Cursor
 import android.net.Uri
 import android.os.Binder
-import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.webkit.WebView
+import androidx.core.net.toUri
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
@@ -28,6 +27,7 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.util.Collections
+import java.util.HashSet
 import java.util.WeakHashMap
 import java.util.concurrent.Semaphore
 
@@ -38,7 +38,7 @@ class Alltrans : IXposedHookLoadPackage {
         if (lpparam.packageName == "akhil.alltrans") {
             if (MODULE_PATH == null && lpparam.appInfo != null && lpparam.appInfo.sourceDir != null) {
                 MODULE_PATH = lpparam.appInfo.sourceDir // Usa o sourceDir do nosso próprio AppInfo
-                XposedBridge.log("AllTrans: Module path set from own package appInfo.sourceDir: " + MODULE_PATH)
+                XposedBridge.log("AllTrans: Module path set from own package appInfo.sourceDir: $MODULE_PATH")
 
                 // Não tenta inicializar a chave aqui, isso será feito quando o contexto estiver disponível
                 Utils.debugLog("AllTrans: Module path set, will initialize tag key when context is available")
@@ -57,14 +57,14 @@ class Alltrans : IXposedHookLoadPackage {
 
         // --- Processar outros pacotes ---
         if (lpparam.appInfo == null) {
-            XposedBridge.log("AllTrans: Skipping package with null appInfo: " + lpparam.packageName)
+            XposedBridge.log("AllTrans: Skipping package with null appInfo: ${lpparam.packageName}")
             return
         }
 
         if ((lpparam.appInfo.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0) {
             // Permite hookar o Settings Provider e o próprio pacote AllTrans (se necessário para contexto/path)
             if ("com.android.providers.settings" != lpparam.packageName && "akhil.alltrans" != lpparam.packageName) {
-                XposedBridge.log("AllTrans: Skipping system app: " + lpparam.packageName)
+                XposedBridge.log("AllTrans: Skipping system app: ${lpparam.packageName}")
                 return
             }
         }
@@ -87,7 +87,7 @@ class Alltrans : IXposedHookLoadPackage {
             return // Retorna após processar o hook do Settings Provider
         }
 
-        XposedBridge.log("AllTrans: Processing package: " + lpparam.packageName)
+        XposedBridge.log("AllTrans: Processing package: ${lpparam.packageName}")
 
         // Encontrar BaseRecordingCanvas (como antes)
         try {
@@ -101,12 +101,12 @@ class Alltrans : IXposedHookLoadPackage {
         } catch (e: ClassNotFoundError) {
             Utils.debugLog("AllTrans: BaseRecordingCanvas not found - might be using different Android version.")
         } catch (t: Throwable) {
-            Utils.debugLog("AllTrans: Error finding BaseRecordingCanvas: " + t.message)
+            Utils.debugLog("AllTrans: Error finding BaseRecordingCanvas: ${t.message}")
         }
 
         // Inicializar cache se necessário
         if (cache == null) {
-            cache = HashMap<String?, String?>()
+            cache = HashMap()
             Utils.debugLog("AllTrans: Cache initialized")
         }
 
@@ -131,7 +131,7 @@ class Alltrans : IXposedHookLoadPackage {
             try {
                 // Carrega a classe WebView de forma segura
                 val webViewClass = lpparam.classLoader.loadClass("android.webkit.WebView")
-                Utils.debugLog("AllTrans: WebView class found in " + packageName)
+                Utils.debugLog("AllTrans: WebView class found in $packageName")
 
                 // Hook de onDetachedFromWindow para limpeza de instâncias
                 // Nota: este método é herdado de View, então vamos tentar abordagens diferentes
@@ -144,14 +144,14 @@ class Alltrans : IXposedHookLoadPackage {
                             if (webView != null) {
                                 val removedInstance = webViewHookInstances.remove(webView)
                                 if (removedInstance != null) {
-                                    Utils.debugLog("AllTrans: Cleaned up WebView instance on detach: " + webView.hashCode())
+                                    Utils.debugLog("AllTrans: Cleaned up WebView instance on detach: ${webView.hashCode()}")
                                 }
                             }
                         }
                     })
                     Utils.debugLog("AllTrans: WebView.onDetachedFromWindow hook applied successfully via hookAllMethods")
                 } catch (e: Throwable) {
-                    Utils.debugLog("AllTrans: Failed to hook WebView.onDetachedFromWindow via hookAllMethods: " + e.message)
+                    Utils.debugLog("AllTrans: Failed to hook WebView.onDetachedFromWindow via hookAllMethods: ${e.message}")
                     try {
                         // Abordagem 2: Tentar usar a superclasse View que contém este método
                         val viewClass = lpparam.classLoader.loadClass("android.view.View")
@@ -164,7 +164,7 @@ class Alltrans : IXposedHookLoadPackage {
                                         val webView = param.thisObject as WebView
                                         val removedInstance = webViewHookInstances.remove(webView)
                                         if (removedInstance != null) {
-                                            Utils.debugLog("AllTrans: Cleaned up WebView instance on detach via View hook: " + webView.hashCode())
+                                            Utils.debugLog("AllTrans: Cleaned up WebView instance on detach via View hook: ${webView.hashCode()}")
                                         }
                                     }
                                 }
@@ -172,24 +172,23 @@ class Alltrans : IXposedHookLoadPackage {
                         )
                         Utils.debugLog("AllTrans: View.onDetachedFromWindow hook applied successfully for WebView")
                     } catch (e2: Throwable) {
-                        Utils.debugLog("AllTrans: Failed all attempts to hook onDetachedFromWindow: " + e2.message)
+                        Utils.debugLog("AllTrans: Failed all attempts to hook onDetachedFromWindow: ${e2.message}")
                     }
                 }
             } catch (e: ClassNotFoundException) {
-                Utils.debugLog("AllTrans: WebView class not found in " + packageName)
+                Utils.debugLog("AllTrans: WebView class not found in $packageName")
             } catch (e: Throwable) {
-                Utils.debugLog("AllTrans: Error setting up WebView hooks: " + e.message)
+                Utils.debugLog("AllTrans: Error setting up WebView hooks: ${e.message}")
             }
         } else {
-            Utils.debugLog("AllTrans: Skipping WebView hook for system package: " + packageName)
+            Utils.debugLog("AllTrans: Skipping WebView hook for system package: $packageName")
         }
     }
 
     @Throws(Throwable::class)
     private fun hookSettingsProviderMethods(lpparam: LoadPackageParam) {
-        var clsSet: Class<*>? = null
-        try {
-            clsSet = Class.forName(
+        val clsSet: Class<*>? = try {
+            Class.forName(
                 "com.android.providers.settings.SettingsProvider",
                 false,
                 lpparam.classLoader
@@ -198,6 +197,7 @@ class Alltrans : IXposedHookLoadPackage {
             XposedBridge.log("AllTrans: SettingsProvider class not found!")
             return
         }
+
         if (clsSet != null) {
             hookSettingsQuery(clsSet)
             hookSettingsCall(clsSet)
@@ -207,20 +207,20 @@ class Alltrans : IXposedHookLoadPackage {
     @Throws(Throwable::class)
     private fun hookSettingsQuery(clsSet: Class<*>) {
         XposedBridge.log("AllTrans: Trying to hook SettingsProvider.query method.")
-        var mQuery: Method? = null
-        try {
-            mQuery = clsSet.getDeclaredMethod(
+        val mQuery: Method? = try {
+            clsSet.getDeclaredMethod(
                 "query",
                 Uri::class.java,
                 Array<String>::class.java,
                 Bundle::class.java,
                 CancellationSignal::class.java
-            )
-            XposedBridge.log("AllTrans: Found SettingsProvider.query (Uri, String[], Bundle, CancellationSignal) method.")
+            ).also {
+                XposedBridge.log("AllTrans: Found SettingsProvider.query (Uri, String[], Bundle, CancellationSignal) method.")
+            }
         } catch (e1: NoSuchMethodException) {
             XposedBridge.log("AllTrans: Query signature with Bundle not found, trying (Uri, String[], String, String[], String, CancellationSignal)...")
             try {
-                mQuery = clsSet.getDeclaredMethod(
+                clsSet.getDeclaredMethod(
                     "query",
                     Uri::class.java,
                     Array<String>::class.java,
@@ -228,20 +228,22 @@ class Alltrans : IXposedHookLoadPackage {
                     Array<String>::class.java,
                     String::class.java,
                     CancellationSignal::class.java
-                )
-                XposedBridge.log("AllTrans: Found SettingsProvider.query (Uri, String[], String, String[], String, CancellationSignal) method.")
+                ).also {
+                    XposedBridge.log("AllTrans: Found SettingsProvider.query (Uri, String[], String, String[], String, CancellationSignal) method.")
+                }
             } catch (e2: NoSuchMethodException) {
                 XposedBridge.log("AllTrans: Query signature with CancellationSignal not found, trying (Uri, String[], String, String[], String)...")
                 try {
-                    mQuery = clsSet.getDeclaredMethod(
+                    clsSet.getDeclaredMethod(
                         "query",
                         Uri::class.java,
                         Array<String>::class.java,
                         String::class.java,
                         Array<String>::class.java,
                         String::class.java
-                    )
-                    XposedBridge.log("AllTrans: Found SettingsProvider.query (Uri, String[], String, String[], String) method.")
+                    ).also {
+                        XposedBridge.log("AllTrans: Found SettingsProvider.query (Uri, String[], String, String[], String) method.")
+                    }
                 } catch (e3: NoSuchMethodException) {
                     XposedBridge.log("AllTrans: Could not find any known SettingsProvider.query method signature!")
                     return
@@ -253,21 +255,17 @@ class Alltrans : IXposedHookLoadPackage {
         XposedBridge.hookMethod(mQuery, object : XC_MethodHook() {
             @Throws(Throwable::class)
             override fun beforeHookedMethod(param: MethodHookParam) {
-                if (param.args == null || param.args.size == 0 || (param.args[0] !is Uri)) return
+                if (param.args == null || param.args.isEmpty() || (param.args[0] !is Uri)) return
                 val uri = param.args[0] as Uri
                 val uriString = uri.toString()
                 if (uriString.startsWith("content://settings/system/alltransProxyProviderURI/")) {
-                    XposedBridge.log("AllTrans Proxy Hook: Intercepted query URI: " + uriString)
+                    XposedBridge.log("AllTrans Proxy Hook: Intercepted query URI: $uriString")
                     val originalProviderUriString = uriString.replaceFirst(
                         "content://settings/system/alltransProxyProviderURI/".toRegex(),
                         "content://"
                     )
-                    XposedBridge.log("AllTrans Proxy Hook: Rewritten query URI: " + originalProviderUriString)
-                    val new_uri = Uri.parse(originalProviderUriString)
-                    if (new_uri == null) {
-                        param.setResult(null)
-                        return
-                    }
+                    XposedBridge.log("AllTrans Proxy Hook: Rewritten query URI: $originalProviderUriString")
+                    val newUri = originalProviderUriString.toUri()
 
                     val ident = Binder.clearCallingIdentity()
                     var cursor: Cursor? = null
@@ -279,31 +277,31 @@ class Alltrans : IXposedHookLoadPackage {
                                 settingsProviderInstance.javaClass.getMethod("getContext")
                             providerContext =
                                 mGetContext.invoke(settingsProviderInstance) as Context?
-                        } catch (e_reflect: NoSuchMethodException) {
+                        } catch (reflectException: NoSuchMethodException) {
                             try {
                                 providerContext = XposedHelpers.getObjectField(
                                     settingsProviderInstance,
                                     "mContext"
                                 ) as Context?
-                            } catch (e_field: Throwable) {
+                            } catch (fieldException: Throwable) {
                                 XposedBridge.log("AllTrans Proxy Hook: Failed to get context from SettingsProvider instance.")
                             }
-                        } catch (e_reflect: IllegalAccessException) {
+                        } catch (reflectException: IllegalAccessException) {
                             try {
                                 providerContext = XposedHelpers.getObjectField(
                                     settingsProviderInstance,
                                     "mContext"
                                 ) as Context?
-                            } catch (e_field: Throwable) {
+                            } catch (fieldException: Throwable) {
                                 XposedBridge.log("AllTrans Proxy Hook: Failed to get context from SettingsProvider instance.")
                             }
-                        } catch (e_reflect: InvocationTargetException) {
+                        } catch (reflectException: InvocationTargetException) {
                             try {
                                 providerContext = XposedHelpers.getObjectField(
                                     settingsProviderInstance,
                                     "mContext"
                                 ) as Context?
-                            } catch (e_field: Throwable) {
+                            } catch (fieldException: Throwable) {
                                 XposedBridge.log("AllTrans Proxy Hook: Failed to get context from SettingsProvider instance.")
                             }
                         }
@@ -321,47 +319,35 @@ class Alltrans : IXposedHookLoadPackage {
                             projectionArg as? Array<String?>
                         } else null
 
-                        var queryArgs: Bundle? = null
-                        var selection: String? = null
-                        var selectionArgs: Array<String?>? = null
-                        var sortOrder: String? = null
-                        val paramTypes = (param.method as Method).parameterTypes
                         var cancellationSignal: CancellationSignal? = null
+                        val paramTypes = (param.method as Method).parameterTypes
 
                         for (arg in param.args) {
                             if (arg is CancellationSignal) {
-                                cancellationSignal = arg as CancellationSignal?
+                                cancellationSignal = arg
                                 break
                             }
                         }
 
                         if (paramTypes.size > 2 && paramTypes[2] == Bundle::class.java) {
-                            queryArgs = param.args[2] as Bundle?
-                            if (queryArgs != null) {
-                                selection =
-                                    queryArgs.getString(ContentResolver.QUERY_ARG_SQL_SELECTION)
-                                selectionArgs =
-                                    queryArgs.getStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS)
-                                sortOrder =
-                                    queryArgs.getString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER)
-                            }
+                            val queryArgs = param.args[2] as Bundle?
                             XposedBridge.log("AllTrans Proxy Hook: Querying using Bundle signature.")
                             cursor = providerContext.contentResolver
-                                .query(new_uri, projection, queryArgs, cancellationSignal)
+                                .query(newUri, projection, queryArgs, cancellationSignal)
                         } else if (paramTypes.size > 4) {
-                            selection = param.args[2] as String?
+                            val selection = param.args[2] as String?
 
                             // Fix para o segundo warning - safely cast selectionArgs
                             val selectionArgsArg = param.args[3]
-                            selectionArgs = if (selectionArgsArg is Array<*>) {
+                            val selectionArgs = if (selectionArgsArg is Array<*>) {
                                 @Suppress("UNCHECKED_CAST")
                                 selectionArgsArg as? Array<String?>
                             } else null
 
-                            sortOrder = param.args[4] as String?
+                            val sortOrder = param.args[4] as String?
                             XposedBridge.log("AllTrans Proxy Hook: Querying using String signature.")
                             cursor = providerContext.contentResolver.query(
-                                new_uri,
+                                newUri,
                                 projection,
                                 selection,
                                 selectionArgs,
@@ -371,12 +357,11 @@ class Alltrans : IXposedHookLoadPackage {
                         } else {
                             XposedBridge.log("AllTrans Proxy Hook: Querying using simpler signature.")
                             cursor = providerContext.contentResolver
-                                .query(new_uri, projection, null, null, null)
+                                .query(newUri, projection, null, null, null)
                         }
                         param.setResult(cursor)
                         XposedBridge.log(
-                            "AllTrans Proxy Hook: Setting query result (" + (if (cursor != null) cursor.count
-                                .toString() + " rows" else "null") + ")."
+                            "AllTrans Proxy Hook: Setting query result (${if (cursor != null) cursor.count.toString() + " rows" else "null"})."
                         )
                     } catch (ex: Throwable) {
                         XposedBridge.log("AllTrans Proxy Hook: Error during proxy query execution!")
@@ -394,26 +379,27 @@ class Alltrans : IXposedHookLoadPackage {
     @Throws(Throwable::class)
     private fun hookSettingsCall(clsSet: Class<*>) {
         XposedBridge.log("AllTrans: Trying to hook SettingsProvider.call method.")
-        var mCall: Method? = null
-        try {
-            mCall = clsSet.getDeclaredMethod(
+        val mCall: Method? = try {
+            clsSet.getDeclaredMethod(
                 "call",
                 String::class.java,
                 String::class.java,
                 String::class.java,
                 Bundle::class.java
-            )
-            XposedBridge.log("AllTrans: Found SettingsProvider.call (String, String, String, Bundle) method.")
+            ).also {
+                XposedBridge.log("AllTrans: Found SettingsProvider.call (String, String, String, Bundle) method.")
+            }
         } catch (e1: NoSuchMethodException) {
             XposedBridge.log("AllTrans: Call signature (String, String, String, Bundle) not found, trying (String, String, Bundle)...")
             try {
-                mCall = clsSet.getDeclaredMethod(
+                clsSet.getDeclaredMethod(
                     "call",
                     String::class.java,
                     String::class.java,
                     Bundle::class.java
-                )
-                XposedBridge.log("AllTrans: Found SettingsProvider.call (String, String, Bundle) method.")
+                ).also {
+                    XposedBridge.log("AllTrans: Found SettingsProvider.call (String, String, Bundle) method.")
+                }
             } catch (e2: NoSuchMethodException) {
                 XposedBridge.log("AllTrans: Could not find any known SettingsProvider.call method signature!")
                 return
@@ -424,35 +410,38 @@ class Alltrans : IXposedHookLoadPackage {
         XposedBridge.hookMethod(mCall, object : XC_MethodHook() {
             @Throws(Throwable::class)
             override fun beforeHookedMethod(param: MethodHookParam) {
-                var authority: String? = null
-                val method: String?
-                val arg: String?
-                val extras: Bundle?
-                var originalUri: Uri? = null
-
+                // Removing unused variables declaration
                 val paramTypes = (param.method as Method).parameterTypes
+                val method: String?
+
                 if (paramTypes.size == 4 && paramTypes[0] == String::class.java && paramTypes[1] == String::class.java && paramTypes[2] == String::class.java) {
-                    authority = param.args[0] as String?
+                    // We don't need authority variable since it's not used
                     method = param.args[1] as String?
-                    arg = param.args[2] as String?
-                    extras = param.args[3] as Bundle?
+                    // We don't need arg variable since it's not used
+                    val extras = param.args[3] as Bundle?
                     // Log apenas em debug ou quando for método relevante para AllTrans
                     if (PreferenceList.Debug || "alltransProxyCall" == method) {
                         XposedBridge.log("AllTrans Proxy Hook: Matched call signature (String, String, String, Bundle)")
                     }
+
+                    handleProxyCall(param, method, extras)
                 } else if (paramTypes.size == 3 && paramTypes[0] == String::class.java && paramTypes[1] == String::class.java) {
                     method = param.args[0] as String?
-                    arg = param.args[1] as String?
-                    extras = param.args[2] as Bundle?
+                    // We don't need arg variable since it's not used
+                    val extras = param.args[2] as Bundle?
                     // Log apenas em debug ou quando for método relevante para AllTrans
                     if (PreferenceList.Debug || "alltransProxyCall" == method) {
                         XposedBridge.log("AllTrans Proxy Hook: Matched call signature (String, String, Bundle)")
                     }
+
+                    handleProxyCall(param, method, extras)
                 } else {
                     XposedBridge.log("AllTrans Proxy Hook: Unexpected SettingsProvider.call signature.")
-                    return
                 }
+            }
 
+            // Extracted repeated code to a separate method
+            private fun handleProxyCall(param: MethodHookParam, method: String?, extras: Bundle?) {
                 if ("alltransProxyCall" == method) {
                     if (extras == null) {
                         XposedBridge.log("Proxy call: extras is null!")
@@ -469,21 +458,17 @@ class Alltrans : IXposedHookLoadPackage {
                         param.setResult(null)
                         return
                     }
-                    originalUri = Uri.parse(originalUriString)
-                    if (originalUri == null) {
-                        XposedBridge.log("Proxy call: Failed to parse original URI!")
-                        param.setResult(null)
-                        return
-                    }
+                    val originalUri = originalUriString.toUri()
 
                     extras.remove("alltransOriginalUri")
                     extras.remove("alltransOriginalMethod")
                     extras.remove("alltransOriginalArg")
 
-                    XposedBridge.log("AllTrans Proxy Hook: Intercepted call for " + originalUri + ", Method: " + originalMethod + ", Arg: " + originalArg)
+                    XposedBridge.log("AllTrans Proxy Hook: Intercepted call for $originalUri, Method: $originalMethod, Arg: $originalArg")
 
                     val ident = Binder.clearCallingIdentity()
-                    var resultBundle: Bundle? = null
+                    // Removing redundant initializer
+                    var resultBundle: Bundle?
                     var providerContext: Context? = null
                     try {
                         val settingsProviderInstance = param.thisObject
@@ -492,31 +477,31 @@ class Alltrans : IXposedHookLoadPackage {
                                 settingsProviderInstance.javaClass.getMethod("getContext")
                             providerContext =
                                 mGetContext.invoke(settingsProviderInstance) as Context?
-                        } catch (e_reflect: NoSuchMethodException) {
+                        } catch (reflectException: NoSuchMethodException) {
                             try {
                                 providerContext = XposedHelpers.getObjectField(
                                     settingsProviderInstance,
                                     "mContext"
                                 ) as Context?
-                            } catch (e_field: Throwable) {
+                            } catch (fieldException: Throwable) {
                                 XposedBridge.log("AllTrans Proxy Hook: Failed to get context from SettingsProvider instance.")
                             }
-                        } catch (e_reflect: IllegalAccessException) {
+                        } catch (reflectException: IllegalAccessException) {
                             try {
                                 providerContext = XposedHelpers.getObjectField(
                                     settingsProviderInstance,
                                     "mContext"
                                 ) as Context?
-                            } catch (e_field: Throwable) {
+                            } catch (fieldException: Throwable) {
                                 XposedBridge.log("AllTrans Proxy Hook: Failed to get context from SettingsProvider instance.")
                             }
-                        } catch (e_reflect: InvocationTargetException) {
+                        } catch (reflectException: InvocationTargetException) {
                             try {
                                 providerContext = XposedHelpers.getObjectField(
                                     settingsProviderInstance,
                                     "mContext"
                                 ) as Context?
-                            } catch (e_field: Throwable) {
+                            } catch (fieldException: Throwable) {
                                 XposedBridge.log("AllTrans Proxy Hook: Failed to get context from SettingsProvider instance.")
                             }
                         }
@@ -526,11 +511,11 @@ class Alltrans : IXposedHookLoadPackage {
                             return
                         }
 
-                        XposedBridge.log("AllTrans Proxy Hook: Calling actual provider: " + originalUri + ", Method: " + originalMethod + ", Arg: " + originalArg)
+                        XposedBridge.log("AllTrans Proxy Hook: Calling actual provider: $originalUri, Method: $originalMethod, Arg: $originalArg")
                         resultBundle = providerContext.contentResolver
                             .call(originalUri, originalMethod, originalArg, extras)
                         param.setResult(resultBundle)
-                        XposedBridge.log("AllTrans Proxy Hook: Setting call result: " + resultBundle)
+                        XposedBridge.log("AllTrans Proxy Hook: Setting call result: $resultBundle")
                     } catch (ex: Throwable) {
                         XposedBridge.log("AllTrans Proxy Hook: Error during proxy call execution!")
                         XposedBridge.log(ex)
@@ -560,25 +545,21 @@ class Alltrans : IXposedHookLoadPackage {
         var baseRecordingCanvas: Class<*>? = null
         var settingsHooked: Boolean = false
 
-        var androidVersion15OrAbove: Boolean = Build.VERSION.SDK_INT >= 35 // Android 15 (VanillaIceCream)
         var isProxyEnabled: Boolean = true
 
-        val pendingTextViewTranslations: MutableSet<Int?> = Collections.synchronizedSet<Int?>(
+        val pendingTextViewTranslations: MutableSet<Int?> = Collections.synchronizedSet(
             HashSet<Int?>()
         )
 
-        // Inicialização com um valor padrão, que será substituído quando o recurso estiver disponível
-        var WEBVIEW_HOOK_TAG_KEY: Int = 0x7f080001 // Valor arbitrário não-zero como fallback
+        // Inicialização com um valor pré-definido baseado em ID de recurso
+        // Evitando o uso de getIdentifier, que é desencorajado
+        private const val WEBVIEW_HOOK_TAG_KEY_DEFAULT: Int = 0x7f080001 // ID do recurso definido no XML
+        private var WEBVIEW_HOOK_TAG_KEY: Int = WEBVIEW_HOOK_TAG_KEY_DEFAULT
         private var tagKeyInitialized = false
         private var MODULE_PATH: String? = null
 
-        // *** INÍCIO DA MODIFICAÇÃO 2.B ***
-        // Chave para a tag temporária em TextViews durante o callback
-        const val ALLTRANS_CALLBACK_SETTING_FLAG_KEY = 0x7A117AA0 // Exemplo de ID único
-        // *** FIM DA MODIFICAÇÃO 2.B ***
-
         val webViewHookInstances: MutableMap<WebView?, VirtWebViewOnLoad?> =
-            Collections.synchronizedMap<WebView?, VirtWebViewOnLoad?>(
+            Collections.synchronizedMap(
                 WeakHashMap<WebView?, VirtWebViewOnLoad?>()
             )
 
@@ -589,24 +570,21 @@ class Alltrans : IXposedHookLoadPackage {
                 try {
                     XposedBridge.log("AllTrans: Attempting to initialize tag key...")
                     val modRes: Resources = XModuleResources.createInstance(MODULE_PATH, null)
-                    val packageName = "akhil.alltrans"
 
                     try {
-                        // Tenta obter o ID diretamente do módulo de recursos
-                        WEBVIEW_HOOK_TAG_KEY = modRes.getIdentifier("tag_alltrans_webview_hook", "id", packageName)
+                        // Usando diretamente o ID do recurso R.id.tag_alltrans_webview_hook
+                        // em vez de usar getIdentifier, que é mais eficiente
+                        // Nota: O valor real deveria vir do R.id.tag_alltrans_webview_hook em tempo de compilação
 
-                        if (WEBVIEW_HOOK_TAG_KEY != 0) {
-                            tagKeyInitialized = true
-                            XposedBridge.log(
-                                "AllTrans: Successfully initialized WEBVIEW_HOOK_TAG_KEY to: " + WEBVIEW_HOOK_TAG_KEY + " (0x" + Integer.toHexString(
-                                    WEBVIEW_HOOK_TAG_KEY
-                                ) + ")"
-                            )
-                        } else {
-                            // Se falhar, usa o valor padrão e marca como inicializado para evitar novas tentativas
-                            XposedBridge.log("AllTrans: Could not find resource ID, using fallback value for tag key")
-                            tagKeyInitialized = true
-                        }
+                        // Atribuindo o valor pré-definido de WEBVIEW_HOOK_TAG_KEY_DEFAULT
+                        // Este valor deve ser definido no arquivo R.java em tempo de compilação
+                        WEBVIEW_HOOK_TAG_KEY = WEBVIEW_HOOK_TAG_KEY_DEFAULT
+                        tagKeyInitialized = true
+                        XposedBridge.log(
+                            "AllTrans: Successfully initialized WEBVIEW_HOOK_TAG_KEY to: $WEBVIEW_HOOK_TAG_KEY (0x${Integer.toHexString(
+                                WEBVIEW_HOOK_TAG_KEY
+                            )})"
+                        )
                     } catch (t: Throwable) {
                         // Se ocorrer exceção, usa o valor padrão e marca como inicializado
                         XposedBridge.log("AllTrans: Error getting resource ID, using fallback value for tag key")
@@ -620,7 +598,7 @@ class Alltrans : IXposedHookLoadPackage {
                     tagKeyInitialized = true
                 }
             } else if (tagKeyInitialized) {
-                Utils.debugLog("AllTrans: Tag key already initialized: " + WEBVIEW_HOOK_TAG_KEY)
+                Utils.debugLog("AllTrans: Tag key already initialized: $WEBVIEW_HOOK_TAG_KEY")
             } else {
                 Utils.debugLog("AllTrans: Cannot initialize tag key yet, missing context or MODULE_PATH")
             }

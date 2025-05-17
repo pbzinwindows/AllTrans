@@ -29,13 +29,13 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.ProgressBar
 import androidx.fragment.app.Fragment
-import java.util.Arrays
 import java.util.Locale
 
 /**
- * A simple [Fragment] subclass.
+ * A simple [Fragment] subclass for displaying instructions in a WebView
  */
 class InstructionsFragment : Fragment() {
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -45,10 +45,13 @@ class InstructionsFragment : Fragment() {
         val rootLayout = FrameLayout(requireContext())
 
         // Create and configure the WebView
-        val webView = WebView(requireActivity())
-        webView.settings.loadWithOverviewMode = true
-        webView.settings.useWideViewPort = false
-        webView.settings.javaScriptEnabled = true
+        val webView = WebView(requireActivity()).apply {
+            settings.apply {
+                loadWithOverviewMode = true
+                useWideViewPort = false
+                javaScriptEnabled = true
+            }
+        }
 
         // Add WebView to the layout
         rootLayout.addView(webView, FrameLayout.LayoutParams(
@@ -61,148 +64,49 @@ class InstructionsFragment : Fragment() {
         val progressParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
             FrameLayout.LayoutParams.WRAP_CONTENT
-        )
-        progressParams.gravity = android.view.Gravity.CENTER
+        ).apply {
+            gravity = android.view.Gravity.CENTER
+        }
         rootLayout.addView(progressBar, progressParams)
 
         // Set WebViewClient to hide progress bar when page is loaded
-        webView.setWebViewClient(object : WebViewClient() {
+        webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 progressBar.visibility = View.GONE
             }
-        })
+        }
 
-        // Get version name from PackageManager instead of BuildConfig
-        var versionName: String? = "latest"
-        try {
+        // Get version name from PackageManager
+        val versionName = try {
             val packageInfo = requireActivity().packageManager
                 .getPackageInfo(requireActivity().packageName, 0)
-            versionName = packageInfo.versionName
+            packageInfo.versionName
         } catch (e: PackageManager.NameNotFoundException) {
             e.printStackTrace()
+            "latest"
         }
 
-        val system_language = Locale.getDefault().language
-        val url: String?
-        val allowed_languages = arrayOf<String?>(
-            "hi",
-            "ko",
-            "af",
-            "sq",
-            "am",
-            "ar",
-            "hy",
-            "az",
-            "eu",
-            "be",
-            "bn",
-            "bs",
-            "bg",
-            "ca",
-            "ceb",
-            "ny",
-            "zh",
-            "zh-CN",
-            "zh-TW",
-            "co",
-            "hr",
-            "cs",
-            "da",
-            "nl",
-            "eo",
-            "et",
-            "tl",
-            "fi",
-            "fr",
-            "fy",
-            "gl",
-            "ka",
-            "de",
-            "el",
-            "gu",
-            "ht",
-            "ha",
-            "haw",
-            "iw",
-            "hi",
-            "hmn",
-            "hu",
-            "is",
-            "ig",
-            "id",
-            "ga",
-            "it",
-            "ja",
-            "jw",
-            "kn",
-            "kk",
-            "km",
-            "rw",
-            "ko",
-            "ku",
-            "ky",
-            "lo",
-            "la",
-            "lv",
-            "lt",
-            "lb",
-            "mk",
-            "mg",
-            "ms",
-            "ml",
-            "mt",
-            "mi",
-            "mr",
-            "mn",
-            "my",
-            "ne",
-            "no",
-            "or",
-            "ps",
-            "fa",
-            "pl",
-            "pt",
-            "pa",
-            "ro",
-            "ru",
-            "sm",
-            "gd",
-            "sr",
-            "st",
-            "sn",
-            "sd",
-            "si",
-            "sk",
-            "sl",
-            "so",
-            "es",
-            "su",
-            "sw",
-            "sv",
-            "tg",
-            "ta",
-            "tt",
-            "te",
-            "th",
-            "tr",
-            "tk",
-            "uk",
-            "ur",
-            "ug",
-            "uz",
-            "vi",
-            "cy",
-            "xh",
-            "yi",
-            "yo",
-            "zu"
+        val systemLanguage = Locale.getDefault().language
+        val allowedLanguages = listOf(
+            "hi", "ko", "af", "sq", "am", "ar", "hy", "az", "eu", "be", "bn", "bs", "bg", "ca",
+            "ceb", "ny", "zh", "zh-CN", "zh-TW", "co", "hr", "cs", "da", "nl", "eo", "et", "tl",
+            "fi", "fr", "fy", "gl", "ka", "de", "el", "gu", "ht", "ha", "haw", "iw", "hi", "hmn",
+            "hu", "is", "ig", "id", "ga", "it", "ja", "jw", "kn", "kk", "km", "rw", "ko", "ku",
+            "ky", "lo", "la", "lv", "lt", "lb", "mk", "mg", "ms", "ml", "mt", "mi", "mr", "mn",
+            "my", "ne", "no", "or", "ps", "fa", "pl", "pt", "pa", "ro", "ru", "sm", "gd", "sr",
+            "st", "sn", "sd", "si", "sk", "sl", "so", "es", "su", "sw", "sv", "tg", "ta", "tt",
+            "te", "th", "tr", "tk", "uk", "ur", "ug", "uz", "vi", "cy", "xh", "yi", "yo", "zu"
         )
-        if (Arrays.asList<String?>(*allowed_languages).contains(system_language)) {
-            url =
-                "https://translate.google.com/translate?sl=en&tl=" + system_language + "&u=https%3A%2F%2Fakhilkedia.github.io%2FAllTrans%2F" + versionName
+
+        // Updated URL to point to the new repository
+        val baseUrl = "https://github.com/pbzinwindows/AllTrans"
+
+        val url = if (systemLanguage in allowedLanguages) {
+            "https://translate.google.com/translate?sl=en&tl=$systemLanguage&u=$baseUrl"
         } else {
-            url = "https://akhilkedia.github.io/AllTrans/" + versionName
+            baseUrl
         }
+
         webView.loadUrl(url)
         return rootLayout
     }
