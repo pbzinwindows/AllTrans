@@ -1,5 +1,5 @@
 <!-- omit in toc -->
-# ![AllTrans](https://raw.githubusercontent.com/akhilkedia/AllTrans/master/app/src/main/res/mipmap-hdpi/ic_launcher.png)AllTrans™ - Completely Translate Apps
+# ![AllTrans](https://raw.githubusercontent.com/pbzinwindows/AllTrans/master/app/src/main/ic_launcher-web.png)AllTrans™ - Completely Translate Apps
 
 Like Chrome's translation of webpages, but for Android apps. It replaces **ALL TEXT IN AN APP** from one language to another at runtime.
 
@@ -7,12 +7,12 @@ Say for example an app is in German. A user selects the app name, and the requir
 Then whenever the user uses the required app, all the text, **ANYWHERE** in the app, are replaced by their English equivalents.
 This is something similar to the way Google Translate works in Chrome.
 
-Works with Android 13!
+Works with Android 15!
 
-[![LicenseGPLv3](https://img.shields.io/badge/License-GPL%20v3-green.svg)](http://www.gnu.org/licenses/gpl-3.0) [![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=UY6TVJXST724J) ![GitHub All Releases](https://img.shields.io/github/downloads/akhilkedia/AllTrans/total?style=social) [![Play](https://img.shields.io/endpoint?color=green&logo=google-play&logoColor=green&url=https%3A%2F%2Fplayshields.herokuapp.com%2Fplay%3Fi%3Dakhil.alltrans%26l%3DInstalls%26m%3D%24installs)](https://play.google.com/store/apps/details?id=akhil.alltrans)
+[![LicenseGPLv3](https://img.shields.io/badge/License-GPL%20v3-green.svg)](http://www.gnu.org/licenses/gpl-3.0) [![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=UY6TVJXST724J) ![GitHub All Releases](https://img.shields.io/github/downloads/akhilkedia/AllTrans/total?style=social) [![Play](https://img.shields.io/endpoint?color=green&logo=google-play&logoColor=green&url=https%3A%2F%2Fplayshields.herokuapp.com%2Fplay%3Fi%3Dakhil.alltrans%26l%3DInstalls%26m%3D%24installs)](https://play.google.com/store/apps/details?id=Alltrans)
 
 Download the latest release from github releases or from LSPosed modules!
-<!-- [![Get it on Google Play](https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png)](https://play.google.com/store/apps/details?id=akhil.alltrans&pcampaignid=pcampaignidMKT-Other-global-all-co-prtnr-py-PartBadge-Mar2515-1) -->
+<!-- [![Get it on Google Play](https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png)](https://play.google.com/store/apps/details?id=Alltrans&pcampaignid=pcampaignidMKT-Other-global-all-co-prtnr-py-PartBadge-Mar2515-1) -->
 
 ## Table of Contents
 
@@ -81,7 +81,7 @@ A video (in English) showing how to use AllTrans by Gadget Hacks on Youtube [htt
 1. Make sure you have [Xposed Framework](https://forum.xda-developers.com/showthread.php?t=3034811) installed and running.
    - [LSPosed](https://github.com/LSPosed/LSPosed) and [EdXposed](https://forum.xda-developers.com/xposed/development/official-edxposed-successor-xposed-t4070199) are recommended.
    - **If you do not have an unlocked bootloader or Magisk, AllTrans is now fully compatible with [VirtualXposed](https://virtualxposed.com/) and [Taichi](https://github.com/taichi-framework/TaiChi/releases), so AllTrans can now be used on all devices!!! No need of unlocked bootloader, no need of Magisk, etc.!**
-1. Install the latest version of AllTrans from [Google Play Store](https://play.google.com/store/apps/details?id=akhil.alltrans). You can alternatively download the apk from [Xposed Module Repository](http://repo.xposed.info/module/akhil.alltrans) or from LSPosed Repository inside LSPosed app.
+1. Install the latest version of AllTrans from [Google Play Store](https://play.google.com/store/apps/details?id=Alltrans). You can alternatively download the apk from [Xposed Module Repository](http://repo.xposed.info/module/Alltrans) or from LSPosed Repository inside LSPosed app.
 1. Reboot your phone.
 
 ## How to use AllTrans

@@ -59,13 +59,13 @@
             </intent-filter>
         </activity>
         <provider
-            android:authorities="akhil.alltrans.sharedPrefProvider"
-            android:name="akhil.alltrans.sharedPrefProvider"
+            android:authorities="akhil.alltrans.SharedPrefProvider"
+            android:name="akhil.alltrans.SharedPrefProvider"
             android:exported="true"
             tools:ignore="ExportedContentProvider" />
         <provider
-            android:authorities="akhil.alltrans.gtransProvider"
-            android:name="akhil.alltrans.gtransProvider"
+            android:authorities="akhil.alltrans.GtransProvider"
+            android:name="akhil.alltrans.GtransProvider"
             android:exported="true"
             tools:ignore="ExportedContentProvider" />
     </application>

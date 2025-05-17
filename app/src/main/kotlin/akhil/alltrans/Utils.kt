@@ -27,7 +27,7 @@ import de.robv.android.xposed.XposedHelpers
 import java.io.StringWriter
 import kotlin.math.min
 
-internal object utils {
+internal object Utils {
     var Debug: Boolean = true
 
     fun isExpModuleActive(context: Context): Boolean {

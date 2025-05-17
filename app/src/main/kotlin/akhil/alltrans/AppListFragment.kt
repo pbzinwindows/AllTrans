@@ -45,7 +45,7 @@ class AppListFragment : Fragment(), SearchableFragment {
         savedInstanceState: Bundle?
     ): View? {
         // O estado do filtro é gerenciado pela MainViewModel agora
-        utils.debugLog("AppListFragment: onCreateView")
+        Utils.debugLog("AppListFragment: onCreateView")
         return inflater.inflate(R.layout.apps_list, container, false)
     }
 
@@ -53,7 +53,7 @@ class AppListFragment : Fragment(), SearchableFragment {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        utils.debugLog("AppListFragment: onViewCreated. Initial ViewModel query: '${mainViewModel.activeSearchQuery.value}'")
+        Utils.debugLog("AppListFragment: onViewCreated. Initial ViewModel query: '${mainViewModel.activeSearchQuery.value}'")
         loadingIndicator = view.findViewById(R.id.loading_indicator)
         listview = view.findViewById(R.id.AppsList)
 
@@ -81,7 +81,7 @@ class AppListFragment : Fragment(), SearchableFragment {
         // Observar a query de pesquisa da ViewModel para filtrar a lista
         viewLifecycleOwner.lifecycleScope.launch {
             mainViewModel.activeSearchQuery.collectLatest { query ->
-                utils.debugLog("AppListFragment: Observed query from ViewModel: '$query'. Applying to adapter.")
+                Utils.debugLog("AppListFragment: Observed query from ViewModel: '$query'. Applying to adapter.")
                 // Aplica o filtro ao adapter. Se o adapter ainda não estiver pronto,
                 // loadPackagesAndSetupAdapter cuidará de aplicar o filtro inicial.
                 adapter?.filter?.filter(query)
@@ -93,7 +93,7 @@ class AppListFragment : Fragment(), SearchableFragment {
 
     override fun onResume() {
         super.onResume()
-        utils.debugLog("AppListFragment: onResume.")
+        Utils.debugLog("AppListFragment: onResume.")
         // Garante que a MainActivity saiba que este fragmento está ativo para mostrar o menu de pesquisa
         mainViewModel.updateCurrentFragmentType(MainViewModel.FragmentType.APPS)
         // Se os dados precisarem ser recarregados CADA VEZ que o fragmento é resumido (ex: para pegar apps recém-instalados),
@@ -105,7 +105,7 @@ class AppListFragment : Fragment(), SearchableFragment {
     // Esta implementação é redundante se o fragmento já observa a ViewModel.
     // A Activity atualiza a ViewModel, e o Fragment reage à ViewModel.
     override fun updateSearchQuery(query: String?) {
-        utils.debugLog("AppListFragment: updateSearchQuery (from SearchableFragment interface) called with: '$query'. ViewModel's query is '${mainViewModel.activeSearchQuery.value}'")
+        Utils.debugLog("AppListFragment: updateSearchQuery (from SearchableFragment interface) called with: '$query'. ViewModel's query is '${mainViewModel.activeSearchQuery.value}'")
         // A ViewModel é a fonte da verdade. Se a Activity chamar isso,
         // é porque a ViewModel já foi (ou está sendo) atualizada.
         // O observador de activeSearchQuery no fragmento deve lidar com isso.
@@ -118,17 +118,17 @@ class AppListFragment : Fragment(), SearchableFragment {
 
     private fun loadPackagesAndSetupAdapter() {
         val initialQueryFromViewModel = mainViewModel.activeSearchQuery.value
-        utils.debugLog("AppListFragment: loadPackagesAndSetupAdapter. Initial filter from ViewModel: '$initialQueryFromViewModel'")
+        Utils.debugLog("AppListFragment: loadPackagesAndSetupAdapter. Initial filter from ViewModel: '$initialQueryFromViewModel'")
         loadingIndicator?.isVisible = true
         listview?.isVisible = false
 
         lifecycleScope.launch(Dispatchers.Main) {
             val freshLoadedPackages = withContext(Dispatchers.IO) {
-                utils.debugLog("AppListFragment: Loading packages in IO thread...")
+                Utils.debugLog("AppListFragment: Loading packages in IO thread...")
                 val pm = requireContext().packageManager
                 var packages = getInstalledApplications(requireContext())
-                if (utils.isExpModuleActive(requireContext())) {
-                    val packageNames = utils.getExpApps(requireContext())
+                if (Utils.isExpModuleActive(requireContext())) {
+                    val packageNames = Utils.getExpApps(requireContext())
                     packages = packages.filter { appInfo -> packageNames.contains(appInfo.packageName) }.toMutableList()
                 }
                 packages.sortWith(Comparator { a, b ->
@@ -141,25 +141,25 @@ class AppListFragment : Fragment(), SearchableFragment {
                     labelA.compareTo(labelB)
                 })
                 fireBaseEnabledApps(packages)
-                utils.debugLog("AppListFragment: Loaded ${packages.size} packages in IO thread.")
+                Utils.debugLog("AppListFragment: Loaded ${packages.size} packages in IO thread.")
                 packages
             }
 
             if (isAdded) {
-                utils.debugLog("AppListFragment: Packages loaded, creating/updating adapter with ${freshLoadedPackages.size} items.")
+                Utils.debugLog("AppListFragment: Packages loaded, creating/updating adapter with ${freshLoadedPackages.size} items.")
                 // Sempre criar um novo adapter ao carregar os pacotes garante que
                 // originalValues no adapter esteja sempre atualizado.
                 adapter = StableArrayAdapter(requireContext(), freshLoadedPackages)
                 listview?.adapter = adapter
 
                 // Aplica a query inicial da ViewModel após o adapter ser configurado
-                utils.debugLog("AppListFragment: Applying initial ViewModel filter '$initialQueryFromViewModel' after new adapter set.")
+                Utils.debugLog("AppListFragment: Applying initial ViewModel filter '$initialQueryFromViewModel' after new adapter set.")
                 adapter?.filter?.filter(initialQueryFromViewModel)
 
                 listview?.isVisible = true
             }
             loadingIndicator?.isVisible = false
-            utils.debugLog("AppListFragment: loadPackagesAndSetupAdapter finished.")
+            Utils.debugLog("AppListFragment: loadPackagesAndSetupAdapter finished.")
         }
     }
 
@@ -201,7 +201,7 @@ class AppListFragment : Fragment(), SearchableFragment {
         // Este método agora é o principal para atualizar os dados base do adapter
         // e refiltrar com a query fornecida (que virá da ViewModel).
         fun updateOriginalDataAndFilter(newPackages: List<ApplicationInfo>, currentQuery: String?) {
-            utils.debugLog("StableArrayAdapter: updateOriginalDataAndFilter with ${newPackages.size} packages. Query: '$currentQuery'")
+            Utils.debugLog("StableArrayAdapter: updateOriginalDataAndFilter with ${newPackages.size} packages. Query: '$currentQuery'")
             this.originalValues = ArrayList(newPackages)
             this.filter.filter(currentQuery) // Aplica o filtro sobre os novos dados base
         }
@@ -209,7 +209,7 @@ class AppListFragment : Fragment(), SearchableFragment {
         override fun getFilter(): Filter {
             return object : Filter() {
                 override fun performFiltering(constraint: CharSequence?): FilterResults {
-                    utils.debugLog("StableArrayAdapter: performFiltering constraint: '$constraint', originalValues size: ${originalValues.size}")
+                    Utils.debugLog("StableArrayAdapter: performFiltering constraint: '$constraint', originalValues size: ${originalValues.size}")
                     val results = FilterResults()
                     val valuesToFilterFrom = ArrayList(originalValues)
                     val filterString = constraint?.toString()?.lowercase(Locale.getDefault())
@@ -229,7 +229,7 @@ class AppListFragment : Fragment(), SearchableFragment {
                         results.values = filteredList
                         results.count = filteredList.size
                     }
-                    utils.debugLog("StableArrayAdapter: performFiltering results count: ${results.count}")
+                    Utils.debugLog("StableArrayAdapter: performFiltering results count: ${results.count}")
                     return results
                 }
 
@@ -247,7 +247,7 @@ class AppListFragment : Fragment(), SearchableFragment {
                         addAll(ArrayList(originalValues))
                     }
                     notifyDataSetChanged()
-                    utils.debugLog("StableArrayAdapter: publishResults finished. Adapter count: $count")
+                    Utils.debugLog("StableArrayAdapter: publishResults finished. Adapter count: $count")
                 }
             }
         }
@@ -287,7 +287,7 @@ class AppListFragment : Fragment(), SearchableFragment {
                     val checkBox = v as CheckBox
                     val appInfoFromTag = checkBox.tag as? ApplicationInfo ?: return@setOnClickListener
                     val pkgName = appInfoFromTag.packageName ?: return@setOnClickListener
-                    utils.debugLog("CheckBox clicked! $pkgName")
+                    Utils.debugLog("CheckBox clicked! $pkgName")
 
                     val globalEditor = settings?.edit()
                     val localSettings = requireActivity().getSharedPreferences(pkgName, Context.MODE_PRIVATE)

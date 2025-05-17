@@ -31,7 +31,7 @@ import java.util.Collections
 import java.util.WeakHashMap
 import java.util.concurrent.Semaphore
 
-class alltrans : IXposedHookLoadPackage {
+class Alltrans : IXposedHookLoadPackage {
     @Throws(Throwable::class)
     override fun handleLoadPackage(lpparam: LoadPackageParam) {
         // --- Define MODULE_PATH quando nosso próprio pacote é carregado ---
@@ -41,12 +41,12 @@ class alltrans : IXposedHookLoadPackage {
                 XposedBridge.log("AllTrans: Module path set from own package appInfo.sourceDir: " + MODULE_PATH)
 
                 // Não tenta inicializar a chave aqui, isso será feito quando o contexto estiver disponível
-                utils.debugLog("AllTrans: Module path set, will initialize tag key when context is available")
+                Utils.debugLog("AllTrans: Module path set, will initialize tag key when context is available")
             }
 
             // Aplica hooks contextuais mesmo para o pacote AllTrans
-            utils.tryHookMethod(Application::class.java, "onCreate", appOnCreateHookHandler())
-            utils.tryHookMethod(
+            Utils.tryHookMethod(Application::class.java, "onCreate", AppOnCreateHookHandler())
+            Utils.tryHookMethod(
                 ContextWrapper::class.java,
                 "attachBaseContext",
                 Context::class.java,
@@ -99,20 +99,20 @@ class alltrans : IXposedHookLoadPackage {
                 XposedBridge.log("AllTrans: Found BaseRecordingCanvas.")
             }
         } catch (e: ClassNotFoundError) {
-            utils.debugLog("AllTrans: BaseRecordingCanvas not found - might be using different Android version.")
+            Utils.debugLog("AllTrans: BaseRecordingCanvas not found - might be using different Android version.")
         } catch (t: Throwable) {
-            utils.debugLog("AllTrans: Error finding BaseRecordingCanvas: " + t.message)
+            Utils.debugLog("AllTrans: Error finding BaseRecordingCanvas: " + t.message)
         }
 
         // Inicializar cache se necessário
         if (cache == null) {
             cache = HashMap<String?, String?>()
-            utils.debugLog("AllTrans: Cache initialized")
+            Utils.debugLog("AllTrans: Cache initialized")
         }
 
         // Aplica hooks para obter contexto e iniciar a lógica principal
-        utils.tryHookMethod(Application::class.java, "onCreate", appOnCreateHookHandler())
-        utils.tryHookMethod(
+        Utils.tryHookMethod(Application::class.java, "onCreate", AppOnCreateHookHandler())
+        Utils.tryHookMethod(
             ContextWrapper::class.java,
             "attachBaseContext",
             Context::class.java,
@@ -131,7 +131,7 @@ class alltrans : IXposedHookLoadPackage {
             try {
                 // Carrega a classe WebView de forma segura
                 val webViewClass = lpparam.classLoader.loadClass("android.webkit.WebView")
-                utils.debugLog("AllTrans: WebView class found in " + packageName)
+                Utils.debugLog("AllTrans: WebView class found in " + packageName)
 
                 // Hook de onDetachedFromWindow para limpeza de instâncias
                 // Nota: este método é herdado de View, então vamos tentar abordagens diferentes
@@ -144,14 +144,14 @@ class alltrans : IXposedHookLoadPackage {
                             if (webView != null) {
                                 val removedInstance = webViewHookInstances.remove(webView)
                                 if (removedInstance != null) {
-                                    utils.debugLog("AllTrans: Cleaned up WebView instance on detach: " + webView.hashCode())
+                                    Utils.debugLog("AllTrans: Cleaned up WebView instance on detach: " + webView.hashCode())
                                 }
                             }
                         }
                     })
-                    utils.debugLog("AllTrans: WebView.onDetachedFromWindow hook applied successfully via hookAllMethods")
+                    Utils.debugLog("AllTrans: WebView.onDetachedFromWindow hook applied successfully via hookAllMethods")
                 } catch (e: Throwable) {
-                    utils.debugLog("AllTrans: Failed to hook WebView.onDetachedFromWindow via hookAllMethods: " + e.message)
+                    Utils.debugLog("AllTrans: Failed to hook WebView.onDetachedFromWindow via hookAllMethods: " + e.message)
                     try {
                         // Abordagem 2: Tentar usar a superclasse View que contém este método
                         val viewClass = lpparam.classLoader.loadClass("android.view.View")
@@ -164,24 +164,24 @@ class alltrans : IXposedHookLoadPackage {
                                         val webView = param.thisObject as WebView
                                         val removedInstance = webViewHookInstances.remove(webView)
                                         if (removedInstance != null) {
-                                            utils.debugLog("AllTrans: Cleaned up WebView instance on detach via View hook: " + webView.hashCode())
+                                            Utils.debugLog("AllTrans: Cleaned up WebView instance on detach via View hook: " + webView.hashCode())
                                         }
                                     }
                                 }
                             }
                         )
-                        utils.debugLog("AllTrans: View.onDetachedFromWindow hook applied successfully for WebView")
+                        Utils.debugLog("AllTrans: View.onDetachedFromWindow hook applied successfully for WebView")
                     } catch (e2: Throwable) {
-                        utils.debugLog("AllTrans: Failed all attempts to hook onDetachedFromWindow: " + e2.message)
+                        Utils.debugLog("AllTrans: Failed all attempts to hook onDetachedFromWindow: " + e2.message)
                     }
                 }
             } catch (e: ClassNotFoundException) {
-                utils.debugLog("AllTrans: WebView class not found in " + packageName)
+                Utils.debugLog("AllTrans: WebView class not found in " + packageName)
             } catch (e: Throwable) {
-                utils.debugLog("AllTrans: Error setting up WebView hooks: " + e.message)
+                Utils.debugLog("AllTrans: Error setting up WebView hooks: " + e.message)
             }
         } else {
-            utils.debugLog("AllTrans: Skipping WebView hook for system package: " + packageName)
+            Utils.debugLog("AllTrans: Skipping WebView hook for system package: " + packageName)
         }
     }
 
@@ -620,9 +620,9 @@ class alltrans : IXposedHookLoadPackage {
                     tagKeyInitialized = true
                 }
             } else if (tagKeyInitialized) {
-                utils.debugLog("AllTrans: Tag key already initialized: " + WEBVIEW_HOOK_TAG_KEY)
+                Utils.debugLog("AllTrans: Tag key already initialized: " + WEBVIEW_HOOK_TAG_KEY)
             } else {
-                utils.debugLog("AllTrans: Cannot initialize tag key yet, missing context or MODULE_PATH")
+                Utils.debugLog("AllTrans: Cannot initialize tag key yet, missing context or MODULE_PATH")
             }
         }
     }

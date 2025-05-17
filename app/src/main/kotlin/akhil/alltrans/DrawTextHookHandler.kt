@@ -34,7 +34,7 @@ class DrawTextHookHandler : XC_MethodReplacement(), OriginalCallable {
                     val makeMethod = alteredClass.getMethod("make", CharSequence::class.java, CharArray::class.java, Int::class.java, Int::class.java)
                     myArgs[0] = makeMethod.invoke(null, translatedString, null, 0, 0)
                 } catch (e: Exception) {
-                    utils.debugLog("Error handling AlteredCharSequence: " + e.message)
+                    Utils.debugLog("Error handling AlteredCharSequence: " + e.message)
                     // Fallback - simplesmente use a string
                     myArgs[0] = translatedString?.toString() ?: ""
                 }
@@ -85,11 +85,11 @@ class DrawTextHookHandler : XC_MethodReplacement(), OriginalCallable {
             }
         }
         //
-        alltrans.Companion.hookAccess.acquireUninterruptibly()
+        Alltrans.Companion.hookAccess.acquireUninterruptibly()
         var unhookedSuccessfully = false
         try {
             // Armazenar uma referência ao callback de hook atual
-            val currentHook = alltrans.Companion.drawTextHook
+            val currentHook = Alltrans.Companion.drawTextHook
 
             // Criar um novo callback para restaurar o hook depois
             val restoreHook = object : XC_MethodHook() {
@@ -104,7 +104,7 @@ class DrawTextHookHandler : XC_MethodReplacement(), OriginalCallable {
             unhookedSuccessfully = true
 
             try {
-                utils.debugLog(
+                Utils.debugLog(
                     "In Thread " + Thread.currentThread()
                         .getId() + " Invoking original function " + methodHookParam.method.getName() + " and setting text to " + myArgs[0].toString()
                 )
@@ -112,26 +112,26 @@ class DrawTextHookHandler : XC_MethodReplacement(), OriginalCallable {
             } catch (e: Throwable) {
                 val sw = StringWriter()
                 e.printStackTrace(PrintWriter(sw))
-                utils.debugLog("Got error in invoking method as : " + sw)
+                Utils.debugLog("Got error in invoking method as : " + sw)
                 val classTypes = StringBuilder()
                 for (myArg in myArgs) {
                     classTypes.append("Class:").append(myArg.javaClass.getCanonicalName())
                         .append("Value:").append(myArg)
                 }
-                utils.debugLog("Params for above error are - " + classTypes)
+                Utils.debugLog("Params for above error are - " + classTypes)
             }
         } catch (e: Throwable) {
-            utils.debugLog("Cannot unhook drawtext for some reason" + Log.getStackTraceString(e))
+            Utils.debugLog("Cannot unhook drawtext for some reason" + Log.getStackTraceString(e))
         }
         if (!unhookedSuccessfully) {
             // Se não conseguiu substituir o hook, restaure manualmente
             try {
-                XposedBridge.hookMethod(methodHookParam.method, alltrans.Companion.drawTextHook)
+                XposedBridge.hookMethod(methodHookParam.method, Alltrans.Companion.drawTextHook)
             } catch (e: Throwable) {
-                utils.debugLog("Cannot re-hook drawtext for some reason" + Log.getStackTraceString(e))
+                Utils.debugLog("Cannot re-hook drawtext for some reason" + Log.getStackTraceString(e))
             }
         }
-        alltrans.Companion.hookAccess.release()
+        Alltrans.Companion.hookAccess.release()
     }
 
     override fun replaceHookedMethod(methodHookParam: MethodHookParam): Any? {
@@ -164,9 +164,9 @@ class DrawTextHookHandler : XC_MethodReplacement(), OriginalCallable {
                 callOriginalMethod(stringArgs, methodHookParam)
                 return null
             }
-            utils.debugLog("Canvas: Found string for canvas drawText : " + methodHookParam.args[0].toString())
+            Utils.debugLog("Canvas: Found string for canvas drawText : " + methodHookParam.args[0].toString())
 
-            utils.debugLog(
+            Utils.debugLog(
                 "In Thread " + Thread.currentThread()
                     .getId() + " Recognized non-english string: " + stringArgs
             )
@@ -179,31 +179,31 @@ class DrawTextHookHandler : XC_MethodReplacement(), OriginalCallable {
             val getTranslateToken = GetTranslateToken()
             getTranslateToken.getTranslate = getTranslate
 
-            alltrans.Companion.cacheAccess.acquireUninterruptibly()
+            Alltrans.Companion.cacheAccess.acquireUninterruptibly()
             try {
-                if (PreferenceList.Caching && alltrans.Companion.cache != null && alltrans.Companion.cache?.containsKey(stringArgs) == true) {
-                    val translatedString: String? = alltrans.Companion.cache?.get(stringArgs)
-                    utils.debugLog(
+                if (PreferenceList.Caching && Alltrans.Companion.cache != null && Alltrans.Companion.cache?.containsKey(stringArgs) == true) {
+                    val translatedString: String? = Alltrans.Companion.cache?.get(stringArgs)
+                    Utils.debugLog(
                         "In Thread " + Thread.currentThread()
                             .getId() + " found string in cache: " + stringArgs + " as " + translatedString
                     )
-                    alltrans.Companion.cacheAccess.release()
+                    Alltrans.Companion.cacheAccess.release()
                     callOriginalMethod(translatedString, methodHookParam)
                     return null
                 } else {
-                    alltrans.Companion.cacheAccess.release()
+                    Alltrans.Companion.cacheAccess.release()
                     callOriginalMethod(stringArgs, methodHookParam)
                 }
             } finally {
-                if (alltrans.Companion.cacheAccess.availablePermits() == 0) {
-                    alltrans.Companion.cacheAccess.release()
+                if (Alltrans.Companion.cacheAccess.availablePermits() == 0) {
+                    Alltrans.Companion.cacheAccess.release()
                 }
             }
 
             getTranslateToken.doAll()
             return null
         } catch (e: Throwable) {
-            utils.debugLog("Some Exception in drawText replaceHook - " + Log.getStackTraceString(e))
+            Utils.debugLog("Some Exception in drawText replaceHook - " + Log.getStackTraceString(e))
             return null
         }
     }

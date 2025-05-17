@@ -28,7 +28,7 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
             changeText(notification, originalString, translatedString.toString())
         }
         try {
-            utils.debugLog(
+            Utils.debugLog(
                 "In Thread " + Thread.currentThread()
                     .getId() + " Invoking original function " + methodHookParam.method.getName()
             )
@@ -47,7 +47,7 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
         if (notification.extras == null) {
             return allNotificationText.toTypedArray<CharSequence?>()
         }
-        utils.debugLog(
+        Utils.debugLog(
             "In Thread " + Thread.currentThread()
                 .getId() + " and it has extras " + notification.extras
         )
@@ -61,14 +61,14 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
             Notification.EXTRA_INFO_TEXT,
             Notification.EXTRA_SUMMARY_TEXT
         )
-        utils.debugLog(charseqs.contentToString() + "")
+        Utils.debugLog(charseqs.contentToString() + "")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             // Fix para o erro de tipo de array
             val newCharseqs = Array<String?>(charseqs.size + 1) { i ->
                 if (i < charseqs.size) charseqs[i] else Notification.EXTRA_BIG_TEXT
             }
             charseqs = newCharseqs
-            utils.debugLog(charseqs.contentToString() + "")
+            Utils.debugLog(charseqs.contentToString() + "")
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             // Fix para o erro de tipo de array
@@ -78,11 +78,11 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
                 else Notification.EXTRA_CONVERSATION_TITLE
             }
             charseqs = newCharseqs2
-            utils.debugLog(charseqs.contentToString() + "")
+            Utils.debugLog(charseqs.contentToString() + "")
         }
         for (key in charseqs) {
             if (notification.extras.containsKey(key) && notification.extras.getCharSequence(key) != null) {
-                utils.debugLog(
+                Utils.debugLog(
                     "Got string " + key + " as " + notification.extras.getCharSequence(
                         key
                     )
@@ -172,7 +172,7 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
         originalString: String?,
         translatedString: String?
     ) {
-        utils.debugLog(
+        Utils.debugLog(
             "In Thread " + Thread.currentThread()
                 .getId() + " and it has extras " + notification.extras
         )
@@ -296,7 +296,7 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
 
     @Throws(Throwable::class)
     override fun replaceHookedMethod(methodHookParam: MethodHookParam): Any? {
-        utils.debugLog("Notification : in notificationhook ")
+        Utils.debugLog("Notification : in notificationhook ")
         val notification = methodHookParam.args[methodHookParam.args.size - 1] as Notification
         val userDataOut = NotificationHookUserData(methodHookParam, "")
         callOriginalMethod("", userDataOut)
@@ -308,29 +308,29 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
                 continue
             }
             val stringArgs = text.toString()
-            utils.debugLog(
+            Utils.debugLog(
                 "In Thread " + Thread.currentThread()
                     .getId() + " Recognized non-english string: " + stringArgs
             )
             val userData = NotificationHookUserData(methodHookParam, text.toString())
 
-            alltrans.Companion.cacheAccess.acquireUninterruptibly()
+            Alltrans.Companion.cacheAccess.acquireUninterruptibly()
             try {
-                if (PreferenceList.Caching && alltrans.Companion.cache != null && alltrans.Companion.cache?.containsKey(stringArgs) == true) {
-                    val translatedString: String? = alltrans.Companion.cache?.get(stringArgs)
-                    utils.debugLog(
+                if (PreferenceList.Caching && Alltrans.Companion.cache != null && Alltrans.Companion.cache?.containsKey(stringArgs) == true) {
+                    val translatedString: String? = Alltrans.Companion.cache?.get(stringArgs)
+                    Utils.debugLog(
                         "In Thread " + Thread.currentThread()
                             .getId() + " found string in cache: " + stringArgs + " as " + translatedString
                     )
-                    alltrans.Companion.cacheAccess.release()
+                    Alltrans.Companion.cacheAccess.release()
                     callOriginalMethod(translatedString, userData)
                     continue
                 } else {
-                    alltrans.Companion.cacheAccess.release()
+                    Alltrans.Companion.cacheAccess.release()
                 }
             } finally {
-                if (alltrans.Companion.cacheAccess.availablePermits() == 0) {
-                    alltrans.Companion.cacheAccess.release()
+                if (Alltrans.Companion.cacheAccess.availablePermits() == 0) {
+                    Alltrans.Companion.cacheAccess.release()
                 }
             }
 

@@ -30,7 +30,7 @@ internal class WebViewOnCreateHookHandler : XC_MethodHook() {
     )  // --- MUDANÇA: Hook onAttachedToWindow em vez do construtor ---
     // Isso garante que a WebView esteja mais inicializada
     override fun afterHookedMethod(methodHookParam: MethodHookParam) {
-        utils.debugLog("WebViewOnCreateHookHandler: after onAttachedToWindow!")
+        Utils.debugLog("WebViewOnCreateHookHandler: after onAttachedToWindow!")
 
         val webView = methodHookParam.thisObject as WebView
         val webSettings = webView.getSettings()
@@ -43,12 +43,12 @@ internal class WebViewOnCreateHookHandler : XC_MethodHook() {
         val webViewHookInstance = VirtWebViewOnLoad(webView)
 
         // Armazena a instância no mapa estático usando a WebView como chave
-        alltrans.Companion.webViewHookInstances.put(webView, webViewHookInstance)
-        utils.debugLog("WebViewOnCreateHookHandler: Stored hook instance for WebView " + webView.hashCode() + " in map.")
+        Alltrans.Companion.webViewHookInstances.put(webView, webViewHookInstance)
+        Utils.debugLog("WebViewOnCreateHookHandler: Stored hook instance for WebView " + webView.hashCode() + " in map.")
 
         // Adiciona a *instância específica* como interface JavaScript
         webView.addJavascriptInterface(webViewHookInstance, "injectedObject")
-        utils.debugLog("WebViewOnCreateHookHandler: Added JS interface for WebView " + webView.hashCode())
+        Utils.debugLog("WebViewOnCreateHookHandler: Added JS interface for WebView " + webView.hashCode())
 
         // --- FIM DA MODIFICAÇÃO ---
 

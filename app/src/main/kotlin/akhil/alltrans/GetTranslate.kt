@@ -28,12 +28,12 @@ class GetTranslate : Callback {
 
         try {
             if (!response.isSuccessful) {
-                utils.debugLog("Got response code as : " + response.code)
+                Utils.debugLog("Got response code as : " + response.code)
                 translatedString = localOriginalString
                 try {
                     val errorBody =
                         if (response.body != null) response.body!!.string() else "null"
-                    utils.debugLog("Got error response body as : " + errorBody)
+                    Utils.debugLog("Got error response body as : " + errorBody)
                 } catch (ignored: Exception) {
                 } finally {
                     if (response.body != null) response.body!!.close()
@@ -45,7 +45,7 @@ class GetTranslate : Callback {
                         throw IOException("Response body is null")
                     }
                     result = response.body!!.string()
-                    utils.debugLog(
+                    Utils.debugLog(
                         "In Thread " + Thread.currentThread()
                             .getId() + " In GetTranslate, for: [" + localOriginalString + "] got response as " + result
                     )
@@ -78,7 +78,7 @@ class GetTranslate : Callback {
                         translatedString = result
                     }
 
-                    translatedString = utils.XMLUnescape(translatedString)
+                    translatedString = Utils.XMLUnescape(translatedString)
                 } catch (e: Exception) { // Catch mais genérico para outras exceções (IOException, etc)
                     Log.e(
                         "AllTrans",
@@ -94,29 +94,29 @@ class GetTranslate : Callback {
                 }
 
                 if (translatedString == null || translatedString!!.isEmpty()) {
-                    utils.debugLog("Translation result is null or empty after parsing, using original.")
+                    Utils.debugLog("Translation result is null or empty after parsing, using original.")
                     translatedString = localOriginalString
                 }
 
                 if (PreferenceList.Caching && translatedString != null && (translatedString != localOriginalString)) {
                     val finalTranslated = translatedString
-                    alltrans.Companion.cacheAccess.acquireUninterruptibly()
+                    Alltrans.Companion.cacheAccess.acquireUninterruptibly()
                     try {
-                        utils.debugLog("Putting in cache: [" + localOriginalString + "] -> [" + finalTranslated + "]")
-                        val cacheRef = alltrans.Companion.cache
+                        Utils.debugLog("Putting in cache: [" + localOriginalString + "] -> [" + finalTranslated + "]")
+                        val cacheRef = Alltrans.Companion.cache
                         if (cacheRef != null) {
                             cacheRef[localOriginalString] = finalTranslated
                             cacheRef[finalTranslated] = finalTranslated
                         } else {
-                            utils.debugLog("Cache object is null, cannot update cache.")
+                            Utils.debugLog("Cache object is null, cannot update cache.")
                         }
                     } finally {
-                        if (alltrans.Companion.cacheAccess.availablePermits() == 0) {
-                            alltrans.Companion.cacheAccess.release()
+                        if (Alltrans.Companion.cacheAccess.availablePermits() == 0) {
+                            Alltrans.Companion.cacheAccess.release()
                         }
                     }
                 } else if (translatedString == localOriginalString) {
-                    utils.debugLog("Skipping cache update for identical translation.")
+                    Utils.debugLog("Skipping cache update for identical translation.")
                 }
             }
         } catch (e: Throwable) {
@@ -133,7 +133,7 @@ class GetTranslate : Callback {
             // Garante que finalString nunca seja nulo antes do callback
             // Fixed: Simplified the expression to avoid the redundant null check
             val finalString: String = translatedString ?: localOriginalString ?: ""
-            utils.debugLog("Final translation result before callback: [" + finalString + "]")
+            Utils.debugLog("Final translation result before callback: [" + finalString + "]")
 
             // --- Lógica de Callback Atualizada (com remoção do Set) ---
             if (userData is TextView) {
@@ -143,12 +143,12 @@ class GetTranslate : Callback {
                 Handler(Looper.getMainLooper()).postDelayed(Runnable {
                     try {
                         if (textView != null && finalString != localOriginalString) {
-                            utils.debugLog("Updating TextView (" + textView.hashCode() + ") with different translated text: [" + finalString + "]")
+                            Utils.debugLog("Updating TextView (" + textView.hashCode() + ") with different translated text: [" + finalString + "]")
                             textView.setText(finalString)
                         } else if (textView != null) {
-                            utils.debugLog("Skipping TextView update for (" + textView.hashCode() + "), translated text is same as original: [" + finalString + "]")
+                            Utils.debugLog("Skipping TextView update for (" + textView.hashCode() + "), translated text is same as original: [" + finalString + "]")
                         } else {
-                            utils.debugLog("Skipping TextView update, view no longer exists.")
+                            Utils.debugLog("Skipping TextView update, view no longer exists.")
                         }
                     } catch (e: Exception) {
                         Log.e(
@@ -159,18 +159,18 @@ class GetTranslate : Callback {
                     } finally {
                         // --- INÍCIO DA REMOÇÃO DO SET ---
                         if (currentTextViewHashCode != null) {
-                            if (alltrans.Companion.pendingTextViewTranslations.remove(
+                            if (Alltrans.Companion.pendingTextViewTranslations.remove(
                                     currentTextViewHashCode
                                 )
                             ) {
-                                utils.debugLog("Removed TextView (" + currentTextViewHashCode + ") from pending set after onResponse.")
+                                Utils.debugLog("Removed TextView (" + currentTextViewHashCode + ") from pending set after onResponse.")
                             }
                         }
                         // --- FIM DA REMOÇÃO DO SET ---
                     }
                 }, PreferenceList.Delay.toLong())
             } else if (canCallOriginal && originalCallable != null) {
-                utils.debugLog("Calling originalCallable.callOriginalMethod for other hook type with text: [" + finalString + "]")
+                Utils.debugLog("Calling originalCallable.callOriginalMethod for other hook type with text: [" + finalString + "]")
                 val currentNonTextViewHashCode =
                     if (userData != null) userData!!.hashCode() else null // Guarda hashcode
                 Handler(Looper.getMainLooper()).postDelayed(Runnable {
@@ -186,11 +186,11 @@ class GetTranslate : Callback {
                         } finally {
                             // --- INÍCIO DA REMOÇÃO DO SET (OUTROS TIPOS) ---
                             if (currentNonTextViewHashCode != null) {
-                                if (alltrans.Companion.pendingTextViewTranslations.remove(
+                                if (Alltrans.Companion.pendingTextViewTranslations.remove(
                                         currentNonTextViewHashCode
                                     )
                                 ) {
-                                    utils.debugLog("Removed non-TextView userData (" + currentNonTextViewHashCode + ") from pending set after onResponse callback.")
+                                    Utils.debugLog("Removed non-TextView userData (" + currentNonTextViewHashCode + ") from pending set after onResponse callback.")
                                 }
                             }
                             // --- FIM DA REMOÇÃO DO SET (OUTROS TIPOS) ---
@@ -202,27 +202,27 @@ class GetTranslate : Callback {
                         )
                         // --- INÍCIO DA REMOÇÃO DO SET (OUTROS TIPOS - FALHA NO CALLBACK) ---
                         if (currentNonTextViewHashCode != null) {
-                            if (alltrans.Companion.pendingTextViewTranslations.remove(
+                            if (Alltrans.Companion.pendingTextViewTranslations.remove(
                                     currentNonTextViewHashCode
                                 )
                             ) {
-                                utils.debugLog("Removed non-TextView userData (" + currentNonTextViewHashCode + ") from pending set after originalCallable became null.")
+                                Utils.debugLog("Removed non-TextView userData (" + currentNonTextViewHashCode + ") from pending set after originalCallable became null.")
                             }
                         }
                         // --- FIM DA REMOÇÃO DO SET (OUTROS TIPOS - FALHA NO CALLBACK) ---
                     }
                 }, PreferenceList.Delay.toLong())
             } else {
-                utils.debugLog("No suitable callback action found for userData type: " + (if (userData != null) userData!!.javaClass.getName() else "null"))
+                Utils.debugLog("No suitable callback action found for userData type: " + (if (userData != null) userData!!.javaClass.getName() else "null"))
                 // --- INÍCIO DA REMOÇÃO DO SET (SEM CALLBACK) ---
                 if (textViewHashCode != null) { // Usa hashcode guardado
-                    if (alltrans.Companion.pendingTextViewTranslations.remove(textViewHashCode)) {
-                        utils.debugLog("Removed TextView (" + textViewHashCode + ") from pending set (no callback action).")
+                    if (Alltrans.Companion.pendingTextViewTranslations.remove(textViewHashCode)) {
+                        Utils.debugLog("Removed TextView (" + textViewHashCode + ") from pending set (no callback action).")
                     }
                 } else if (userData != null) {
                     val hashToRemove = userData!!.hashCode()
-                    if (alltrans.Companion.pendingTextViewTranslations.remove(hashToRemove)) {
-                        utils.debugLog("Removed non-TextView userData (" + hashToRemove + ") from pending set (no callback action).")
+                    if (Alltrans.Companion.pendingTextViewTranslations.remove(hashToRemove)) {
+                        Utils.debugLog("Removed non-TextView userData (" + hashToRemove + ") from pending set (no callback action).")
                     }
                 }
                 // --- FIM DA REMOÇÃO DO SET (SEM CALLBACK) ---
@@ -246,9 +246,9 @@ class GetTranslate : Callback {
         try {
             // --- Lógica de Callback Atualizada para Falha ---
             if (userData is TextView) {
-                utils.debugLog("Network failure for TextView (" + currentHashCode + "), original text remains.")
+                Utils.debugLog("Network failure for TextView (" + currentHashCode + "), original text remains.")
             } else if (canCallOriginal && originalCallable != null) {
-                utils.debugLog("Calling originalCallable.callOriginalMethod on failure for other hook type with original text: [" + localOriginalString + "]")
+                Utils.debugLog("Calling originalCallable.callOriginalMethod on failure for other hook type with original text: [" + localOriginalString + "]")
                 val finalCurrentHashCode = currentHashCode // Final para lambda
                 Handler(Looper.getMainLooper()).postDelayed(Runnable {
                     if (originalCallable != null) {
@@ -263,11 +263,11 @@ class GetTranslate : Callback {
                         } finally {
                             // --- INÍCIO DA REMOÇÃO DO SET (OUTROS TIPOS - FALHA) ---
                             if (finalCurrentHashCode != null) {
-                                if (alltrans.Companion.pendingTextViewTranslations.remove(
+                                if (Alltrans.Companion.pendingTextViewTranslations.remove(
                                         finalCurrentHashCode
                                     )
                                 ) {
-                                    utils.debugLog("Removed non-TextView userData (" + finalCurrentHashCode + ") from pending set after onFailure callback.")
+                                    Utils.debugLog("Removed non-TextView userData (" + finalCurrentHashCode + ") from pending set after onFailure callback.")
                                 }
                             }
                             // --- FIM DA REMOÇÃO DO SET (OUTROS TIPOS - FALHA) ---
@@ -279,22 +279,22 @@ class GetTranslate : Callback {
                         )
                         // --- INÍCIO DA REMOÇÃO DO SET (OUTROS TIPOS - FALHA NO CALLBACK) ---
                         if (finalCurrentHashCode != null) {
-                            if (alltrans.Companion.pendingTextViewTranslations.remove(
+                            if (Alltrans.Companion.pendingTextViewTranslations.remove(
                                     finalCurrentHashCode
                                 )
                             ) {
-                                utils.debugLog("Removed non-TextView userData (" + finalCurrentHashCode + ") from pending set after originalCallable became null on failure.")
+                                Utils.debugLog("Removed non-TextView userData (" + finalCurrentHashCode + ") from pending set after originalCallable became null on failure.")
                             }
                         }
                         // --- FIM DA REMOÇÃO DO SET (OUTROS TIPOS - FALHA NO CALLBACK) ---
                     }
                 }, PreferenceList.Delay.toLong())
             } else {
-                utils.debugLog("No suitable failure callback action found for userData type: " + (if (userData != null) userData!!.javaClass.getName() else "null"))
+                Utils.debugLog("No suitable failure callback action found for userData type: " + (if (userData != null) userData!!.javaClass.getName() else "null"))
                 // --- INÍCIO DA REMOÇÃO DO SET (SEM CALLBACK - FALHA) ---
                 if (currentHashCode != null) {
-                    if (alltrans.Companion.pendingTextViewTranslations.remove(currentHashCode)) {
-                        utils.debugLog("Removed userData (" + currentHashCode + ") from pending set (no callback action on failure).")
+                    if (Alltrans.Companion.pendingTextViewTranslations.remove(currentHashCode)) {
+                        Utils.debugLog("Removed userData (" + currentHashCode + ") from pending set (no callback action on failure).")
                     }
                 }
                 // --- FIM DA REMOÇÃO DO SET (SEM CALLBACK - FALHA) ---
@@ -304,8 +304,8 @@ class GetTranslate : Callback {
             // --- INÍCIO DA REMOÇÃO DO SET (GARANTIA EM CASO DE FALHA) ---
             // Remove do set mesmo se a tradução falhar (caso não tenha sido removido no callback)
             if (currentHashCode != null) {
-                if (alltrans.Companion.pendingTextViewTranslations.remove(currentHashCode)) {
-                    utils.debugLog("Removed userData (" + currentHashCode + ") from pending set in onFailure finally block.")
+                if (Alltrans.Companion.pendingTextViewTranslations.remove(currentHashCode)) {
+                    Utils.debugLog("Removed userData (" + currentHashCode + ") from pending set in onFailure finally block.")
                 }
             }
             // --- FIM DA REMOÇÃO DO SET (GARANTIA EM CASO DE FALHA) ---

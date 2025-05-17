@@ -9,7 +9,7 @@ This is something similar to the way Google Translate works in Chrome.
 
 Works with Android 13!
 
-[![LicenseGPLv3](https://img.shields.io/badge/License-GPL%20v3-green.svg)](http://www.gnu.org/licenses/gpl-3.0) [![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=UY6TVJXST724J) ![GitHub All Releases](https://img.shields.io/github/downloads/akhilkedia/AllTrans/total?style=social) [![Play](https://img.shields.io/endpoint?color=green&logo=google-play&logoColor=green&url=https%3A%2F%2Fplayshields.herokuapp.com%2Fplay%3Fi%3Dakhil.alltrans%26l%3DInstalls%26m%3D%24installs)](https://play.google.com/store/apps/details?id=akhil.alltrans)
+[![LicenseGPLv3](https://img.shields.io/badge/License-GPL%20v3-green.svg)](http://www.gnu.org/licenses/gpl-3.0) [![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=UY6TVJXST724J) ![GitHub All Releases](https://img.shields.io/github/downloads/akhilkedia/AllTrans/total?style=social) [![Play](https://img.shields.io/endpoint?color=green&logo=google-play&logoColor=green&url=https%3A%2F%2Fplayshields.herokuapp.com%2Fplay%3Fi%3Dakhil.alltrans%26l%3DInstalls%26m%3D%24installs)](https://play.google.com/store/apps/details?id=Alltrans)
 
 
 ## Table of Contents
@@ -77,7 +77,7 @@ A video (in English) showing how to use AllTrans by Gadget Hacks on Youtube [htt
 1. This application requires android version 4.1 or later. You probably already have it. (Android JellyBean or later - so far JellyBean, Kitkat, Lollipop, MarshMallow, Nougat, Oreo, Pie and Q.).
 1. Make sure you have [Xposed Framework](https://forum.xda-developers.com/showthread.php?t=3034811) installed and running.
    - [LSPosed](https://github.com/LSPosed/LSPosed) and [EdXposed](https://forum.xda-developers.com/xposed/development/official-edxposed-successor-xposed-t4070199) are recommended.
-1. Install the latest version of AllTrans from [Google Play Store](https://play.google.com/store/apps/details?id=akhil.alltrans). You can alternatively download the apk from [Xposed Module Repository](http://repo.xposed.info/module/akhil.alltrans)
+1. Install the latest version of AllTrans from [Google Play Store](https://play.google.com/store/apps/details?id=Alltrans). You can alternatively download the apk from [Xposed Module Repository](http://repo.xposed.info/module/Alltrans)
 1. Reboot your phone.
 
 ## How to use AllTrans

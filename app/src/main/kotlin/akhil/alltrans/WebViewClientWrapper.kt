@@ -36,7 +36,7 @@ import android.webkit.WebViewClient
 
 class WebViewClientWrapper(private val oriClient: WebViewClient?) : WebViewClient(), Cloneable {
     init {
-        utils.debugLog("WebViewClientWrapper: Created wrapper for original client: " + (if (oriClient != null) oriClient.javaClass.getName() else "null"))
+        Utils.debugLog("WebViewClientWrapper: Created wrapper for original client: " + (if (oriClient != null) oriClient.javaClass.getName() else "null"))
     }
 
     // --- Métodos delegados (sem alterações, exceto onPageFinished) ---
@@ -56,7 +56,7 @@ class WebViewClientWrapper(private val oriClient: WebViewClient?) : WebViewClien
 
     @Throws(CloneNotSupportedException::class)
     override fun clone(): Any {
-        utils.debugLog("WebViewClientWrapper: clone() called.")
+        Utils.debugLog("WebViewClientWrapper: clone() called.")
         return WebViewClientWrapper(oriClient)
     }
 
@@ -88,41 +88,41 @@ class WebViewClientWrapper(private val oriClient: WebViewClient?) : WebViewClien
 
     @SuppressLint("JavascriptInterface", "AddJavascriptInterface")
     override fun onPageFinished(view: WebView, url: String?) {
-        utils.debugLog("WebViewClientWrapper: onPageFinished START for URL: " + url + " WebView: " + view.hashCode())
+        Utils.debugLog("WebViewClientWrapper: onPageFinished START for URL: " + url + " WebView: " + view.hashCode())
 
         super.onPageFinished(view, url)
         if (oriClient != null) {
             try {
                 oriClient.onPageFinished(view, url)
-                utils.debugLog("WebViewClientWrapper: Called oriClient.onPageFinished")
+                Utils.debugLog("WebViewClientWrapper: Called oriClient.onPageFinished")
             } catch (t: Throwable) {
-                utils.debugLog(
+                Utils.debugLog(
                     "WebViewClientWrapper: Error calling oriClient.onPageFinished: " + Log.getStackTraceString(
                         t
                     )
                 )
             }
         } else {
-            utils.debugLog("WebViewClientWrapper: oriClient is null in onPageFinished.")
+            Utils.debugLog("WebViewClientWrapper: oriClient is null in onPageFinished.")
         }
 
         // --- INÍCIO DA MODIFICAÇÃO: Recuperar do Mapa Estático ---
         try {
-            utils.debugLog("WebViewClientWrapper: Attempting to retrieve VirtWebViewOnLoad instance from map...")
+            Utils.debugLog("WebViewClientWrapper: Attempting to retrieve VirtWebViewOnLoad instance from map...")
             // Recupera a instância do mapa usando a WebView como chave
             val webViewHookInstance: VirtWebViewOnLoad? =
-                alltrans.Companion.webViewHookInstances.get(view)
+                Alltrans.Companion.webViewHookInstances.get(view)
 
             if (webViewHookInstance != null) {
-                utils.debugLog("WebViewClientWrapper: Found instance in map, attempting to call afterOnLoadMethod...")
+                Utils.debugLog("WebViewClientWrapper: Found instance in map, attempting to call afterOnLoadMethod...")
                 webViewHookInstance.afterOnLoadMethod(view) // Chama o método na instância correta
-                utils.debugLog("WebViewClientWrapper: Successfully called afterOnLoadMethod on instance.")
+                Utils.debugLog("WebViewClientWrapper: Successfully called afterOnLoadMethod on instance.")
             } else {
-                utils.debugLog("WebViewClientWrapper: Error - Could not retrieve VirtWebViewOnLoad instance from map for WebView " + view.hashCode() + "!")
+                Utils.debugLog("WebViewClientWrapper: Error - Could not retrieve VirtWebViewOnLoad instance from map for WebView " + view.hashCode() + "!")
                 // A instância pode não ter sido adicionada ainda (timing) ou já foi coletada pelo GC (se WeakHashMap)
             }
         } catch (e: Throwable) {
-            utils.debugLog(
+            Utils.debugLog(
                 "WebViewClientWrapper: Error retrieving from map or executing afterOnLoadMethod in onPageFinished: " + Log.getStackTraceString(
                     e
                 )
@@ -130,7 +130,7 @@ class WebViewClientWrapper(private val oriClient: WebViewClient?) : WebViewClien
         }
 
         // --- FIM DA MODIFICAÇÃO ---
-        utils.debugLog("WebViewClientWrapper: onPageFinished END for URL: " + url + " WebView: " + view.hashCode())
+        Utils.debugLog("WebViewClientWrapper: onPageFinished END for URL: " + url + " WebView: " + view.hashCode())
     }
 
 

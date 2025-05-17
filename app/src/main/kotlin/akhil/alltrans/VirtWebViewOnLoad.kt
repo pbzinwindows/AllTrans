@@ -30,18 +30,18 @@ import kotlin.math.min
 
 class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallable {
     init {
-        utils.debugLog("VirtWebViewOnLoad: Instance created for WebView: " + (if (webViewInstance != null) webViewInstance.hashCode() else "null"))
+        Utils.debugLog("VirtWebViewOnLoad: Instance created for WebView: " + (if (webViewInstance != null) webViewInstance.hashCode() else "null"))
     }
 
     override fun callOriginalMethod(translatedString: CharSequence?, userData: Any?) {
         if (userData !is WebHookUserData2) {
-            utils.debugLog("VirtWebViewOnLoad: Error in callOriginalMethod - userData is not WebHookUserData2")
+            Utils.debugLog("VirtWebViewOnLoad: Error in callOriginalMethod - userData is not WebHookUserData2")
             return
         }
         val webHookUserData2 = userData
         val webView = webHookUserData2.webView
         if (webView == null) {
-            utils.debugLog("VirtWebViewOnLoad: Error in callOriginalMethod - webView from userData is null")
+            Utils.debugLog("VirtWebViewOnLoad: Error in callOriginalMethod - webView from userData is null")
             return
         }
 
@@ -49,18 +49,18 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
         val translatedValue = translatedString.toString() // Usa valor não escapado para lógica Java
 
         if (translatedValue == null || originalUnescaped == null || translatedValue == originalUnescaped) {
-            utils.debugLog("VirtWebViewOnLoad: Skipping JS injection in callOriginalMethod - translated string is null or same as original.")
+            Utils.debugLog("VirtWebViewOnLoad: Skipping JS injection in callOriginalMethod - translated string is null or same as original.")
             markNodeAsTranslated(webView, originalUnescaped)
             return
         }
 
-        utils.debugLog("VirtWebViewOnLoad: callOriginalMethod - Injecting JS to replace [" + originalUnescaped + "] with [" + translatedValue + "] in WebView " + webView.hashCode())
+        Utils.debugLog("VirtWebViewOnLoad: callOriginalMethod - Injecting JS to replace [" + originalUnescaped + "] with [" + translatedValue + "] in WebView " + webView.hashCode())
 
         // Escapa as strings *apenas* para inserção segura no literal JS
         val originalEscapedForJS = escapeJsString(originalUnescaped)
         val translatedEscapedForJS = escapeJsString(translatedValue)
 
-        // Script JS de Substituição (com marcação data-alltrans-translated)
+        // Script JS de Substituição (com marcação data-Alltrans-translated)
         val script = (""
                 + "var AllTransPlaceholderTypes = {\n"
                 + "    'date': 0, 'datetime-local': 0, 'email': 0, 'month': 0,\n"
@@ -76,15 +76,15 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
                 + "  var ignore = {'STYLE': 0, 'SCRIPT': 0, 'NOSCRIPT': 0, 'IFRAME': 0, 'OBJECT': 0};\n"
                 + "  (function scanSubTree(node) {\n"
                 + "    if (!node) return;\n"
-                + "    if (node.nodeType === 1 && node.hasAttribute('data-alltrans-translated')) { return; }\n"
+                + "    if (node.nodeType === 1 && node.hasAttribute('data-Alltrans-translated')) { return; }\n"
                 + "    if (node.tagName && node.tagName in ignore) { return; }\n"
                 + "    if (node.tagName && node.tagName.toLowerCase() == 'input' && (node.type in AllTransInputTypes || node.type in AllTransPlaceholderTypes)) {\n"
-                + "      if (!node.hasAttribute('data-alltrans-translated')) { result.push(node); }\n"
+                + "      if (!node.hasAttribute('data-Alltrans-translated')) { result.push(node); }\n"
                 + "    }\n"
                 + "    if (node.childNodes && node.childNodes.length) {\n"
                 + "      for (var i = 0; i < node.childNodes.length; i++) { scanSubTree(node.childNodes[i]); }\n"
                 + "    } else if (node.nodeType == 3) {\n"
-                + "      if (!node.parentElement || !node.parentElement.hasAttribute('data-alltrans-translated')) { result.push(node); }\n"
+                + "      if (!node.parentElement || !node.parentElement.hasAttribute('data-Alltrans-translated')) { result.push(node); }\n"
                 + "    }\n"
                 + "  })(tempDocument);\n"
                 + "  return result;\n"
@@ -128,7 +128,7 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
                 + "      }\n" // --- CORREÇÃO DA ASPAS ---
                 + "      // Adiciona o atributo se um elemento foi modificado e é válido\n"
                 + "      if (elementToMark && typeof elementToMark.setAttribute === 'function') {\n"
-                + "          elementToMark.setAttribute('data-alltrans-translated', 'true');\n"
+                + "          elementToMark.setAttribute('data-Alltrans-translated', 'true');\n"
                 + "      }\n"
                 + "    } catch (e) { console.error('AllTrans JS Error replacing node:', e); }\n"
                 + "  }\n"
@@ -178,7 +178,7 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
     // --- Nova função auxiliar para marcar nós como traduzidos ---
     private fun markNodeAsTranslated(webView: WebView?, originalText: String?) {
         if (webView == null || originalText == null) return
-        utils.debugLog("VirtWebViewOnLoad: Marking nodes with original text [" + originalText + "] as translated in WebView " + webView.hashCode())
+        Utils.debugLog("VirtWebViewOnLoad: Marking nodes with original text [" + originalText + "] as translated in WebView " + webView.hashCode())
         val originalEscapedForJS = escapeJsString(originalText)
 
         val script = (""
@@ -190,15 +190,15 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
                 + "  var ignore = {'STYLE': 0, 'SCRIPT': 0, 'NOSCRIPT': 0, 'IFRAME': 0, 'OBJECT': 0};\n"
                 + "  (function scanSubTree(node) {\n"
                 + "    if (!node) return;\n"
-                + "    if (node.nodeType === 1 && node.hasAttribute('data-alltrans-translated')) { return; }\n"
+                + "    if (node.nodeType === 1 && node.hasAttribute('data-Alltrans-translated')) { return; }\n"
                 + "    if (node.tagName && node.tagName in ignore) { return; }\n"
                 + "    if (node.tagName && node.tagName.toLowerCase() == 'input' && (node.type in AllTransInputTypes || node.type in AllTransPlaceholderTypes)) {\n"
-                + "      if (!node.hasAttribute('data-alltrans-translated')) { result.push(node); }\n"
+                + "      if (!node.hasAttribute('data-Alltrans-translated')) { result.push(node); }\n"
                 + "    }\n"
                 + "    if (node.childNodes && node.childNodes.length) {\n"
                 + "      for (var i = 0; i < node.childNodes.length; i++) { scanSubTree(node.childNodes[i]); }\n"
                 + "    } else if (node.nodeType == 3) {\n"
-                + "      if (!node.parentElement || !node.parentElement.hasAttribute('data-alltrans-translated')) { result.push(node); }\n"
+                + "      if (!node.parentElement || !node.parentElement.hasAttribute('data-Alltrans-translated')) { result.push(node); }\n"
                 + "    }\n"
                 + "  })(tempDocument);\n"
                 + "  return result;\n"
@@ -225,7 +225,7 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
                 + "        if (currentValue && currentValue.trim() === originalTrimmed) { elementToMark = currentNode; }\n"
                 + "      }\n"
                 + "      if (elementToMark && typeof elementToMark.setAttribute === 'function') {\n"
-                + "          elementToMark.setAttribute('data-alltrans-translated', 'true');\n"
+                + "          elementToMark.setAttribute('data-Alltrans-translated', 'true');\n"
                 + "          markedCount++;\n"
                 + "      }\n"
                 + "    } catch (e) { console.error('AllTrans JS Error marking node:', e); }\n"
@@ -260,8 +260,8 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
     @SuppressLint("JavascriptInterface", "AddJavascriptInterface")
     @Throws(Throwable::class)
     fun afterOnLoadMethod(webView: WebView) {
-        utils.debugLog("VirtWebViewOnLoad: afterOnLoadMethod ENTERED for WebView: " + webView.hashCode())
-        utils.debugLog("we are in onPageFinished!")
+        Utils.debugLog("VirtWebViewOnLoad: afterOnLoadMethod ENTERED for WebView: " + webView.hashCode())
+        Utils.debugLog("we are in onPageFinished!")
 
         val scriptFrames = "console.log(\"AllTrans: Frames is \"+window.frames.length)"
         myEvaluateJavaScript(webView, scriptFrames)
@@ -288,15 +288,15 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
                 + "    var ignore = {'STYLE': 0, 'SCRIPT': 0, 'NOSCRIPT': 0, 'IFRAME': 0, 'OBJECT': 0, 'CODE': 0, 'PRE': 0};\n"
                 + "    (function scanSubTree(node) {\n"
                 + "        if (!node) return;\n"
-                + "        if (node.nodeType === 1 && node.hasAttribute('data-alltrans-translated')) { return; }\n"
+                + "        if (node.nodeType === 1 && node.hasAttribute('data-Alltrans-translated')) { return; }\n"
                 + "        if (node.tagName && node.tagName in ignore) { return; }\n"
                 + "        if (node.tagName && node.tagName.toLowerCase() == 'input' && (node.type in AllTransInputTypes || node.type in AllTransPlaceholderTypes)) {\n"
-                + "            if (!node.hasAttribute('data-alltrans-translated')) { result.push(node); }\n"
+                + "            if (!node.hasAttribute('data-Alltrans-translated')) { result.push(node); }\n"
                 + "        }\n"
                 + "        if (node.childNodes && node.childNodes.length) {\n"
                 + "            for (var i = 0; i < node.childNodes.length; i++) { scanSubTree(node.childNodes[i]); }\n"
                 + "        } else if (node.nodeType == 3) {\n"
-                + "             if (!node.parentElement || !node.parentElement.hasAttribute('data-alltrans-translated')) { result.push(node); }\n"
+                + "             if (!node.parentElement || !node.parentElement.hasAttribute('data-Alltrans-translated')) { result.push(node); }\n"
                 + "        }\n"
                 + "    })(tempDocument);\n"
                 + "    return result;\n"
@@ -324,7 +324,7 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
                 + "\n"
                 + "        if (text && text.trim() !== '') {\n"
                 + "            var trimmedText = text.trim();\n"
-                + "            if (elementToCheck && elementToCheck.hasAttribute && elementToCheck.hasAttribute('data-alltrans-translated')) {\n"
+                + "            if (elementToCheck && elementToCheck.hasAttribute && elementToCheck.hasAttribute('data-Alltrans-translated')) {\n"
                 + "                 continue;\n"
                 + "            }\n"
                 + "            if (trimmedText.length < 3 && !(elementToCheck && elementToCheck.tagName === 'INPUT')) { continue; }\n"
@@ -386,9 +386,9 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
                 + "setTimeout(doAll, " + PreferenceList.DelayWebView + ");\n"
                 + "console.log('AllTrans JS: Initialized and observer set/checked.');")
 
-        utils.debugLog("VirtWebViewOnLoad: Injecting main JS script...")
+        Utils.debugLog("VirtWebViewOnLoad: Injecting main JS script...")
         myEvaluateJavaScript(webView, script)
-        utils.debugLog("VirtWebViewOnLoad: afterOnLoadMethod EXITED for WebView: " + webView.hashCode())
+        Utils.debugLog("VirtWebViewOnLoad: afterOnLoadMethod EXITED for WebView: " + webView.hashCode())
     }
 
     @Suppress("unused")
@@ -399,7 +399,7 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
         }
 
         if (this.webViewInstance == null) {
-            utils.debugLog("VirtWebViewOnLoad: showLog - webViewInstance is null! Aborting translation for [" + stringArgs + "]")
+            Utils.debugLog("VirtWebViewOnLoad: showLog - webViewInstance is null! Aborting translation for [" + stringArgs + "]")
             return
         }
 
@@ -407,7 +407,7 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
             return
         }
 
-        utils.debugLog("VirtWebViewOnLoad: showLog received: [" + stringArgs + "] for WebView " + this.webViewInstance.hashCode())
+        Utils.debugLog("VirtWebViewOnLoad: showLog received: [" + stringArgs + "] for WebView " + this.webViewInstance.hashCode())
 
         val currentUserData = WebHookUserData2(this.webViewInstance, stringArgs)
         val getTranslate = GetTranslate()
@@ -419,22 +419,22 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
         var translationNeeded = true
 
         if (PreferenceList.Caching) {
-            alltrans.Companion.cacheAccess.acquireUninterruptibly()
+            Alltrans.Companion.cacheAccess.acquireUninterruptibly()
             var cachedValue: String? = null
             try {
-                val cacheRef = alltrans.Companion.cache
+                val cacheRef = Alltrans.Companion.cache
                 if (cacheRef != null) {
                     cachedValue = cacheRef[stringArgs]
                 }
             } finally {
-                if (alltrans.Companion.cacheAccess.availablePermits() == 0) {
-                    alltrans.Companion.cacheAccess.release()
+                if (Alltrans.Companion.cacheAccess.availablePermits() == 0) {
+                    Alltrans.Companion.cacheAccess.release()
                 }
             }
 
             if (cachedValue != null) {
                 if (cachedValue != stringArgs) {
-                    utils.debugLog("VirtWebViewOnLoad: showLog - Found different translation in cache: [" + stringArgs + "] -> [" + cachedValue + "]")
+                    Utils.debugLog("VirtWebViewOnLoad: showLog - Found different translation in cache: [" + stringArgs + "] -> [" + cachedValue + "]")
                     val finalCachedTranslation: String? = cachedValue
                     Handler(Looper.getMainLooper()).postDelayed(Runnable {
                         callOriginalMethod(
@@ -443,18 +443,18 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
                     }, PreferenceList.Delay.toLong())
                     translationNeeded = false
                 } else {
-                    utils.debugLog("VirtWebViewOnLoad: showLog - Found same translation in cache, skipping request: [" + stringArgs + "]")
+                    Utils.debugLog("VirtWebViewOnLoad: showLog - Found same translation in cache, skipping request: [" + stringArgs + "]")
                     markNodeAsTranslated(this.webViewInstance, stringArgs)
                     translationNeeded = false
                 }
             } else {
-                utils.debugLog("VirtWebViewOnLoad: showLog - Not in cache: [" + stringArgs + "]")
+                Utils.debugLog("VirtWebViewOnLoad: showLog - Not in cache: [" + stringArgs + "]")
                 translationNeeded = true
             }
         }
 
         if (translationNeeded) {
-            utils.debugLog("VirtWebViewOnLoad: showLog - Requesting translation for: [" + stringArgs + "]")
+            Utils.debugLog("VirtWebViewOnLoad: showLog - Requesting translation for: [" + stringArgs + "]")
             val getTranslateToken = GetTranslateToken()
             getTranslateToken.getTranslate = getTranslate
             getTranslateToken.doAll()
@@ -464,9 +464,9 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
     @Suppress("unused")
     @JavascriptInterface
     fun WriteHTML(html: String) {
-        val contextRef = alltrans.Companion.context
+        val contextRef = Alltrans.Companion.context
         if (contextRef == null) {
-            utils.debugLog("VirtWebViewOnLoad: WriteHTML - Context is null, cannot write file.")
+            Utils.debugLog("VirtWebViewOnLoad: WriteHTML - Context is null, cannot write file.")
             return
         }
         try {
@@ -476,18 +476,18 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
             )
             fileOutputStream.write(html.toByteArray())
             fileOutputStream.close()
-            utils.debugLog("VirtWebViewOnLoad: WriteHTML - Saved HTML snapshot.")
+            Utils.debugLog("VirtWebViewOnLoad: WriteHTML - Saved HTML snapshot.")
         } catch (e: Throwable) {
-            utils.debugLog("VirtWebViewOnLoad: WriteHTML - Exception while writing HTML: " + e)
+            Utils.debugLog("VirtWebViewOnLoad: WriteHTML - Exception while writing HTML: " + e)
         }
     }
 
     fun myEvaluateJavaScript(webView: WebView?, script: String) {
         if (webView == null) {
-            utils.debugLog("VirtWebViewOnLoad: myEvaluateJavaScript - WebView is null!")
+            Utils.debugLog("VirtWebViewOnLoad: myEvaluateJavaScript - WebView is null!")
             return
         }
-        utils.debugLog(
+        Utils.debugLog(
             "VirtWebViewOnLoad: Evaluating JS for WebView " + webView.hashCode() + ": " + script.substring(
                 0,
                 min(script.length.toDouble(), 100.0).toInt()
@@ -501,11 +501,11 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
                         override fun onReceiveValue(value: String?) {
                             val logValue =
                                 if (value == null || "null" == value || value.isEmpty()) "<no return value>" else value
-                            // utils.debugLog("VirtWebViewOnLoad: JS evaluation result: " + logValue); // Comentado para reduzir spam
+                            // Utils.debugLog("VirtWebViewOnLoad: JS evaluation result: " + logValue); // Comentado para reduzir spam
                         }
                     })
                 } catch (e: Exception) {
-                    utils.debugLog("VirtWebViewOnLoad: Exception during evaluateJavascript: " + e.message)
+                    Utils.debugLog("VirtWebViewOnLoad: Exception during evaluateJavascript: " + e.message)
                 }
             }
         })

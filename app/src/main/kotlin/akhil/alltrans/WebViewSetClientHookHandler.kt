@@ -23,7 +23,7 @@ import de.robv.android.xposed.XC_MethodHook
 
 class WebViewSetClientHookHandler : XC_MethodHook() {
     override fun beforeHookedMethod(methodHookParam: MethodHookParam) {
-        utils.debugLog("we are setting WebViewClient!")
+        Utils.debugLog("we are setting WebViewClient!")
         val ori = methodHookParam.args[0] as WebViewClient?
         methodHookParam.args[0] = WebViewClientWrapper(ori)
     }

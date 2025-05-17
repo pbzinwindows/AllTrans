@@ -41,7 +41,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
 // import android.os.ResultReceiver; // Não necessário nesta versão
-class gtransProvider : ContentProvider() {
+class GtransProvider : ContentProvider() {
     @GuardedBy("translatorClients")
     private val translatorClients: MutableMap<String?, Translator> =
         Collections.synchronizedMap<String?, Translator?>(
@@ -49,7 +49,7 @@ class gtransProvider : ContentProvider() {
         )
 
     override fun onCreate(): Boolean {
-        utils.debugLog(gtransProvider.Companion.TAG + ": onCreate")
+        Utils.debugLog(GtransProvider.Companion.TAG + ": onCreate")
         return true
     }
 
@@ -62,7 +62,7 @@ class gtransProvider : ContentProvider() {
         sortOrder: String?
     ): Cursor? {
         val startTime = System.nanoTime()
-        utils.debugLog(gtransProvider.Companion.TAG + ": Received query URI: " + uri)
+        Utils.debugLog(GtransProvider.Companion.TAG + ": Received query URI: " + uri)
 
         // 1. Extrair parâmetros da URI
         val fromLanguage = uri.getQueryParameter(KEY_FROM_LANGUAGE)
@@ -71,7 +71,7 @@ class gtransProvider : ContentProvider() {
 
         if (fromLanguage == null || toLanguage == null || textToTranslate == null || textToTranslate.isEmpty()) {
             Log.w(
-                gtransProvider.Companion.TAG,
+                GtransProvider.Companion.TAG,
                 "Query missing required parameters (from, to, text). URI: " + uri
             )
             return createErrorCursor("Missing parameters", projection)
@@ -81,15 +81,15 @@ class gtransProvider : ContentProvider() {
             if (!TranslateLanguage.getAllLanguages()
                     .contains(fromLanguage) && "auto" != fromLanguage
             ) {
-                Log.w(gtransProvider.Companion.TAG, "Invalid 'from' language code: " + fromLanguage)
+                Log.w(GtransProvider.Companion.TAG, "Invalid 'from' language code: " + fromLanguage)
                 return createErrorCursor("Invalid 'from' language", projection)
             }
             if (!TranslateLanguage.getAllLanguages().contains(toLanguage)) {
-                Log.w(gtransProvider.Companion.TAG, "Invalid 'to' language code: " + toLanguage)
+                Log.w(GtransProvider.Companion.TAG, "Invalid 'to' language code: " + toLanguage)
                 return createErrorCursor("Invalid 'to' language", projection)
             }
         } catch (e: IllegalArgumentException) {
-            Log.e(gtransProvider.Companion.TAG, "Language code validation failed", e)
+            Log.e(GtransProvider.Companion.TAG, "Language code validation failed", e)
             return createErrorCursor("Language validation error", projection)
         }
 
@@ -103,7 +103,7 @@ class gtransProvider : ContentProvider() {
         synchronized(translatorClients) {
             translator = translatorClients.get(hashKey)
             if (translator == null) {
-                utils.debugLog(gtransProvider.Companion.TAG + ": Creating new Translator for " + hashKey)
+                Utils.debugLog(GtransProvider.Companion.TAG + ": Creating new Translator for " + hashKey)
                 try {
                     val options = TranslatorOptions.Builder()
                         .setSourceLanguage(finalFromLang!!)
@@ -114,7 +114,7 @@ class gtransProvider : ContentProvider() {
                     translatorClients.put(hashKey, translator)
                 } catch (e: Exception) {
                     Log.e(
-                        gtransProvider.Companion.TAG,
+                        GtransProvider.Companion.TAG,
                         "Failed to create Translator client for " + hashKey,
                         e
                     )
@@ -133,11 +133,11 @@ class gtransProvider : ContentProvider() {
                     10,
                     TimeUnit.SECONDS
                 ) // BLOQUEANTE AQUI (dentro da thread do executor)
-                utils.debugLog(gtransProvider.Companion.TAG + ": ML Kit translation successful for: [" + textToTranslate + "]")
+                Utils.debugLog(GtransProvider.Companion.TAG + ": ML Kit translation successful for: [" + textToTranslate + "]")
                 return@Callable if (result != null) result else textToTranslate
             } catch (e: TimeoutException) {
                 Log.w(
-                    gtransProvider.Companion.TAG,
+                    GtransProvider.Companion.TAG,
                     "ML Kit translation timed out for: [" + textToTranslate + "]"
                 )
                 return@Callable textToTranslate
@@ -145,12 +145,12 @@ class gtransProvider : ContentProvider() {
                 // Diferenciar erro de modelo não baixado
                 if (e.cause is MlKitException && (e.cause as MlKitException).getErrorCode() == MlKitException.UNAVAILABLE) {
                     Log.w(
-                        gtransProvider.Companion.TAG,
+                        GtransProvider.Companion.TAG,
                         "ML Kit model not available/downloaded for " + finalFromLang + "->" + finalToLang
                     )
                 } else {
                     Log.e(
-                        gtransProvider.Companion.TAG,
+                        GtransProvider.Companion.TAG,
                         "ML Kit translation failed for: [" + textToTranslate + "]",
                         e
                     )
@@ -160,26 +160,26 @@ class gtransProvider : ContentProvider() {
         }
 
         val futureResult: Future<String?> =
-            gtransProvider.Companion.mlKitExecutor!!.submit<String?>(translationTask)
+            GtransProvider.Companion.mlKitExecutor!!.submit<String?>(translationTask)
 
         // 4. Esperar pelo Future (AINDA BLOQUEIA o Binder thread do provider)
         var translatedString: String? = textToTranslate
         try {
             translatedString = futureResult.get(12, TimeUnit.SECONDS)
-            utils.debugLog(gtransProvider.Companion.TAG + ": Future task completed. Result: [" + translatedString + "]")
+            Utils.debugLog(GtransProvider.Companion.TAG + ": Future task completed. Result: [" + translatedString + "]")
         } catch (e: TimeoutException) {
-            Log.w(gtransProvider.Companion.TAG, "Future task timed out waiting for ML Kit result.")
+            Log.w(GtransProvider.Companion.TAG, "Future task timed out waiting for ML Kit result.")
             futureResult.cancel(true)
             translatedString = textToTranslate
         } catch (e: Exception) {
-            Log.e(gtransProvider.Companion.TAG, "Future task failed waiting for ML Kit result", e)
+            Log.e(GtransProvider.Companion.TAG, "Future task failed waiting for ML Kit result", e)
             translatedString = textToTranslate
         }
 
         // 5. Construir e retornar o Cursor
         val durationNs = System.nanoTime() - startTime
-        utils.debugLog(
-            gtransProvider.Companion.TAG + ": Query processing took " + TimeUnit.NANOSECONDS.toMillis(
+        Utils.debugLog(
+            GtransProvider.Companion.TAG + ": Query processing took " + TimeUnit.NANOSECONDS.toMillis(
                 durationNs
             ) + "ms"
         )
@@ -197,7 +197,7 @@ class gtransProvider : ContentProvider() {
             }
             if (!found) {
                 Log.w(
-                    gtransProvider.Companion.TAG,
+                    GtransProvider.Companion.TAG,
                     "Requested projection does not include '" + COLUMN_TRANSLATE + "'."
                 )
                 return MatrixCursor(projection)
@@ -233,31 +233,31 @@ class gtransProvider : ContentProvider() {
     override fun shutdown() {
         // ... (código de shutdown como antes) ...
         super.shutdown()
-        utils.debugLog(gtransProvider.Companion.TAG + ": shutdown initiated.")
+        Utils.debugLog(GtransProvider.Companion.TAG + ": shutdown initiated.")
         synchronized(translatorClients) {
-            utils.debugLog(gtransProvider.Companion.TAG + ": Closing " + translatorClients.size + " cached Translator clients.")
+            Utils.debugLog(GtransProvider.Companion.TAG + ": Closing " + translatorClients.size + " cached Translator clients.")
             for (translator in translatorClients.values) {
                 try {
                     translator.close()
                 } catch (e: Exception) {
-                    Log.w(gtransProvider.Companion.TAG, "Error closing translator.", e)
+                    Log.w(GtransProvider.Companion.TAG, "Error closing translator.", e)
                 }
             }
             translatorClients.clear()
         }
-        if (gtransProvider.Companion.mlKitExecutor != null && !gtransProvider.Companion.mlKitExecutor.isShutdown()) {
-            utils.debugLog(gtransProvider.Companion.TAG + ": Shutting down ML Kit ExecutorService.")
-            gtransProvider.Companion.mlKitExecutor.shutdown()
+        if (GtransProvider.Companion.mlKitExecutor != null && !GtransProvider.Companion.mlKitExecutor.isShutdown()) {
+            Utils.debugLog(GtransProvider.Companion.TAG + ": Shutting down ML Kit ExecutorService.")
+            GtransProvider.Companion.mlKitExecutor.shutdown()
             try {
-                if (!gtransProvider.Companion.mlKitExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                    gtransProvider.Companion.mlKitExecutor.shutdownNow()
+                if (!GtransProvider.Companion.mlKitExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    GtransProvider.Companion.mlKitExecutor.shutdownNow()
                 }
             } catch (e: InterruptedException) {
-                gtransProvider.Companion.mlKitExecutor.shutdownNow()
+                GtransProvider.Companion.mlKitExecutor.shutdownNow()
                 Thread.currentThread().interrupt()
             }
         }
-        utils.debugLog(gtransProvider.Companion.TAG + ": shutdown complete.")
+        Utils.debugLog(GtransProvider.Companion.TAG + ": shutdown complete.")
     }
 
 
@@ -268,7 +268,7 @@ class gtransProvider : ContentProvider() {
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
         Log.w(
-            gtransProvider.Companion.TAG,
+            GtransProvider.Companion.TAG,
             "Call method invoked, but not implemented. Returning null."
         )
         return null

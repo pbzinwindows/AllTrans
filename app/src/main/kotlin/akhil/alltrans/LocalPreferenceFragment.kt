@@ -6,25 +6,17 @@ import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
-import android.view.View
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
-import androidx.core.view.isVisible
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreference
-import com.google.android.gms.tasks.OnFailureListener
-import com.google.android.gms.tasks.OnSuccessListener
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.progressindicator.CircularProgressIndicator
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.TranslatorOptions
 import java.text.Collator
-import java.util.Arrays
 import java.util.TreeMap
-import java.util.Locale
 
 class LocalPreferenceFragment : PreferenceFragmentCompat() {
     var applicationInfo: ApplicationInfo? = null
@@ -126,7 +118,7 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
         val translatorProvider = globalSettings?.getString("TranslatorProvider", "g") ?: "g"
 
         if (translatorProvider != "g") {
-            utils.debugLog("LocalPref: Skipping download, global provider is not Google ($translatorProvider)")
+            Utils.debugLog("LocalPref: Skipping download, global provider is not Google ($translatorProvider)")
             return
         }
         if (translateLanguageSelected.isEmpty() || translateLanguageSelected == "auto") {
@@ -134,7 +126,7 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
             return
         }
 
-        utils.debugLog("LocalPref: Preparing download for Language $translateLanguageSelected isFromLanguage $isFromLanguage")
+        Utils.debugLog("LocalPref: Preparing download for Language $translateLanguageSelected isFromLanguage $isFromLanguage")
         val sourceLanguage: String
         val targetLanguage: String
         try {
@@ -175,14 +167,14 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
 
                 mlKitTranslator.downloadModelIfNeeded()
                     .addOnSuccessListener { _ ->
-                        utils.debugLog("LocalPref: Successfully Downloaded Translation model!")
+                        Utils.debugLog("LocalPref: Successfully Downloaded Translation model!")
                         try { progressDialog.dismiss() } catch (e: Exception) { Log.w("AllTrans", "Error dismissing progressDialog", e) }
                         try { dialogInterface.dismiss() } catch (e: Exception) { Log.w("AllTrans", "Error dismissing dialogInterface", e) }
                         Toast.makeText(context, R.string.download_sucess, Toast.LENGTH_SHORT).show()
                     }
                     .addOnFailureListener { e ->
-                        utils.debugLog("LocalPref: Could not Download Translation model!")
-                        utils.debugLog("LocalPref: Download error - " + Log.getStackTraceString(e))
+                        Utils.debugLog("LocalPref: Could not Download Translation model!")
+                        Utils.debugLog("LocalPref: Download error - " + Log.getStackTraceString(e))
                         try { progressDialog.dismiss() } catch (e: Exception) { Log.w("AllTrans", "Error dismissing progressDialog on failure", e) }
                         try { dialogInterface.dismiss() } catch (e: Exception) { Log.w("AllTrans", "Error dismissing dialogInterface on failure", e) }
                         Toast.makeText(context, R.string.download_failure, Toast.LENGTH_LONG ).show()
@@ -247,7 +239,7 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
                     ?.putString("ClearCacheTime", System.currentTimeMillis().toString())
                     ?.apply()
 
-                utils.debugLog("Cleared cache due to provider change to: $provider")
+                Utils.debugLog("Cleared cache due to provider change to: $provider")
                 Toast.makeText(
                     preference.context,
                     R.string.clear_cache_success,
@@ -295,10 +287,10 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
             globalSettings?.edit()?.apply {
                 if (enabled) {
                     putBoolean(applicationInfo!!.packageName, true)
-                    utils.debugLog("LocalPref Listener: Added ${applicationInfo!!.packageName} to global list.")
+                    Utils.debugLog("LocalPref Listener: Added ${applicationInfo!!.packageName} to global list.")
                 } else {
                     remove(applicationInfo!!.packageName)
-                    utils.debugLog("LocalPref Listener: Removed ${applicationInfo!!.packageName} from global list.")
+                    Utils.debugLog("LocalPref Listener: Removed ${applicationInfo!!.packageName} from global list.")
                 }
                 apply()
             }

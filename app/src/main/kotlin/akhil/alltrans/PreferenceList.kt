@@ -56,7 +56,7 @@ internal object PreferenceList {
             try {
                 CachingTime = clearCacheTimeObj.toLong()
             } catch (e: NumberFormatException) {
-                utils.debugLog("Error parsing ClearCacheTime: " + clearCacheTimeObj)
+                Utils.debugLog("Error parsing ClearCacheTime: " + clearCacheTimeObj)
                 CachingTime = 0L
             }
         } else if (clearCacheTimeObj is Long) {
@@ -64,12 +64,12 @@ internal object PreferenceList {
         }
 
         if (getValue(lPref, "OverRide", false) as Boolean) {
-            utils.debugLog("Overriding global preferences with local ones for " + packageName)
+            Utils.debugLog("Overriding global preferences with local ones for " + packageName)
 
             val localProvider = getValue(lPref, "TranslatorProvider", null) as String?
             if (localProvider != null) {
                 TranslatorProvider = localProvider
-                utils.debugLog("Using local translator provider: $localProvider")
+                Utils.debugLog("Using local translator provider: $localProvider")
             }
 
             TranslateFromLanguage = getValue(
@@ -123,6 +123,6 @@ internal object PreferenceList {
         }
 
         val localSettingsEnabledFlag = getValue(lPref, "LocalEnabled", false) as Boolean
-        utils.debugLog("Local settings enabled flag: " + localSettingsEnabledFlag)
+        Utils.debugLog("Local settings enabled flag: " + localSettingsEnabledFlag)
     }
 }

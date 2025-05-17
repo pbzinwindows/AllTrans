@@ -26,7 +26,7 @@ import android.database.MatrixCursor
 import android.net.Uri
 import com.google.gson.Gson
 
-class sharedPrefProvider : ContentProvider() {
+class SharedPrefProvider : ContentProvider() {
     override fun onCreate(): Boolean {
         return true
     }
@@ -38,9 +38,9 @@ class sharedPrefProvider : ContentProvider() {
         selectionArgs: Array<String?>?,
         sortOrder: String?
     ): Cursor {
-        utils.debugLog("Got URI as - " + uri.toString())
+        Utils.debugLog("Got URI as - " + uri.toString())
         val packageName = uri.toString()
-            .replaceFirst("content://akhil.alltrans.sharedPrefProvider/".toRegex(), "")
+            .replaceFirst("content://akhil.alltrans.SharedPrefProvider/".toRegex(), "")
         val cols = arrayOf<String?>("sharedPreferences")
         val cursor = MatrixCursor(cols)
 
@@ -49,8 +49,8 @@ class sharedPrefProvider : ContentProvider() {
         var builder = cursor.newRow()
         val globalPrefGson = Gson().toJson(globalPref.getAll())
         builder.add(globalPrefGson)
-        utils.debugLog("Got globalpref as - " + globalPrefGson + " for package " + packageName)
-        utils.debugLog(
+        Utils.debugLog("Got globalpref as - " + globalPrefGson + " for package " + packageName)
+        Utils.debugLog(
             "Got boolean as - " + globalPref.getBoolean(
                 packageName,
                 false
@@ -60,7 +60,7 @@ class sharedPrefProvider : ContentProvider() {
             val localPrefGson = Gson().toJson(
                 this.getContext()!!.getSharedPreferences(packageName, Context.MODE_PRIVATE).getAll()
             )
-            utils.debugLog("Got localpref as - " + localPrefGson + " for package " + packageName)
+            Utils.debugLog("Got localpref as - " + localPrefGson + " for package " + packageName)
             builder = cursor.newRow()
             builder.add(localPrefGson)
         }

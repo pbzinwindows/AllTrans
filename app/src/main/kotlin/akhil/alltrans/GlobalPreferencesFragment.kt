@@ -1,30 +1,20 @@
 package akhil.alltrans
 
 import android.annotation.SuppressLint
-import android.content.DialogInterface
-import android.content.SharedPreferences // Adicionar import
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
-import android.view.View
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog // Adicionar import
-import androidx.core.view.isVisible
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
-import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.PreferenceManager
-import com.google.android.gms.tasks.OnFailureListener
-import com.google.android.gms.tasks.OnSuccessListener
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.progressindicator.CircularProgressIndicator
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.TranslatorOptions
 import java.text.Collator
 import java.util.TreeMap
-import java.util.Locale // Adicionar import
 
 class GlobalPreferencesFragment : PreferenceFragmentCompat() {
 
@@ -183,7 +173,7 @@ class GlobalPreferencesFragment : PreferenceFragmentCompat() {
             return
         }
 
-        utils.debugLog("Preparing download for Translation model for Language $translateLanguageSelected isFromLanguage $isFromLanguage")
+        Utils.debugLog("Preparing download for Translation model for Language $translateLanguageSelected isFromLanguage $isFromLanguage")
         val sourceLanguage: String?
         val targetLanguage: String?
         try {
@@ -224,14 +214,14 @@ class GlobalPreferencesFragment : PreferenceFragmentCompat() {
 
                 mlKitTranslator.downloadModelIfNeeded()
                     .addOnSuccessListener { _ ->
-                        utils.debugLog("Successfully Downloaded Translation model!")
+                        Utils.debugLog("Successfully Downloaded Translation model!")
                         try { progressDialog.dismiss() } catch (e: Exception) { Log.w("AllTrans", "Error dismissing progressDialog", e) }
                         try { dialogInterface.dismiss() } catch (e: Exception) { Log.w("AllTrans", "Error dismissing dialogInterface", e) }
                         Toast.makeText(context, R.string.download_sucess, Toast.LENGTH_SHORT).show()
                     }
                     .addOnFailureListener { e ->
-                        utils.debugLog("Could not Download Translation model!")
-                        utils.debugLog("Download error - " + Log.getStackTraceString(e))
+                        Utils.debugLog("Could not Download Translation model!")
+                        Utils.debugLog("Download error - " + Log.getStackTraceString(e))
                         try { progressDialog.dismiss() } catch (e: Exception) { Log.w("AllTrans", "Error dismissing progressDialog on failure", e) }
                         try { dialogInterface.dismiss() } catch (e: Exception) { Log.w("AllTrans", "Error dismissing dialogInterface on failure", e) }
                         Toast.makeText(context, R.string.download_failure, Toast.LENGTH_LONG).show()
@@ -273,15 +263,15 @@ class GlobalPreferencesFragment : PreferenceFragmentCompat() {
                 val translateLanguageSelected = newValue as String?
                 val providerPref = findPreference<ListPreference?>(KEY_TRANSLATOR_PROVIDER)
                 val currentProviderValue = providerPref?.value ?: "g"
-                utils.debugLog("TranslateFrom listener triggered. Lang: $translateLanguageSelected, Provider (from object): $currentProviderValue")
+                Utils.debugLog("TranslateFrom listener triggered. Lang: $translateLanguageSelected, Provider (from object): $currentProviderValue")
                 if ("g" == currentProviderValue) {
                     if(translateLanguageSelected != null) {
                         downloadModel(translateLanguageSelected, true)
                     } else {
-                        utils.debugLog("Skipping downloadModel call: selected language is null")
+                        Utils.debugLog("Skipping downloadModel call: selected language is null")
                     }
                 } else {
-                    utils.debugLog("Skipping model download prompt (reading pref obj) in FromLanguage listener, provider is: $currentProviderValue")
+                    Utils.debugLog("Skipping model download prompt (reading pref obj) in FromLanguage listener, provider is: $currentProviderValue")
                 }
                 true
             }
@@ -292,15 +282,15 @@ class GlobalPreferencesFragment : PreferenceFragmentCompat() {
                 val translateLanguageSelected = newValue as String?
                 val providerPref = findPreference<ListPreference?>(KEY_TRANSLATOR_PROVIDER)
                 val currentProviderValue = providerPref?.value ?: "g"
-                utils.debugLog("TranslateTo listener triggered. Lang: $translateLanguageSelected, Provider (from object): $currentProviderValue")
+                Utils.debugLog("TranslateTo listener triggered. Lang: $translateLanguageSelected, Provider (from object): $currentProviderValue")
                 if ("g" == currentProviderValue) {
                     if(translateLanguageSelected != null) {
                         downloadModel(translateLanguageSelected, false)
                     } else {
-                        utils.debugLog("Skipping downloadModel call: selected language is null")
+                        Utils.debugLog("Skipping downloadModel call: selected language is null")
                     }
                 } else {
-                    utils.debugLog("Skipping model download prompt (reading pref obj) in ToLanguage listener, provider is: $currentProviderValue")
+                    Utils.debugLog("Skipping model download prompt (reading pref obj) in ToLanguage listener, provider is: $currentProviderValue")
                 }
                 true
             }

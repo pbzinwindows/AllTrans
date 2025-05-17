@@ -74,7 +74,7 @@ A video (in English) showing how to use AllTrans by Gadget Hacks on Youtube [htt
 
 1. This application requires android version 4.1 or later. You probably already have it. (Android JellyBean or later - so far JellyBean, Kitkat, Lollipop, MarshMallow, Nougat, Oreo, Pie and Q.).
 1. Make sure you have [Xposed Framework](https://forum.xda-developers.com/showthread.php?t=3034811) installed and running. If there is not an official version of Xposed for your Android, [EdXposed](https://forum.xda-developers.com/xposed/development/official-edxposed-successor-xposed-t4070199) is recommended. <!-- 1. If you do not have Xposed, AllTrans is now fully compatible with [VirtualXposed](https://virtualxposed.com/) and [Taichi](https://taichi.cool/), so AllTrans can now be used on all devices!!! No need of root, no need of Magisk, etc.! -->
-1. Get the latest release of the APK from the [Xposed Module Repository](http://repo.xposed.info/module/akhil.alltrans)
+1. Get the latest release of the APK from the [Xposed Module Repository](http://repo.xposed.info/module/Alltrans)
 1. Reboot your phone.
 
 ## How to use AllTrans

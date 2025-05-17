@@ -1,7 +1,6 @@
 package akhil.alltrans
 
 import android.os.Bundle
-import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.widget.FrameLayout
@@ -42,14 +41,14 @@ class MainViewModel : ViewModel() {
     fun updateActiveSearchQuery(query: String?) {
         if (_activeSearchQuery.value != query) {
             _activeSearchQuery.value = query
-            utils.debugLog("ViewModel: Updated activeSearchQuery to '$query'")
+            Utils.debugLog("ViewModel: Updated activeSearchQuery to '$query'")
         }
     }
 
     fun updateCurrentFragmentType(type: FragmentType) {
         if (_currentFragmentType.value != type) {
             _currentFragmentType.value = type
-            utils.debugLog("ViewModel: Updated currentFragmentType to $type")
+            Utils.debugLog("ViewModel: Updated currentFragmentType to $type")
             if (type != FragmentType.APPS) {
                 clearActiveSearchQuery() // Limpa a pesquisa ao sair da aba de apps
             }
@@ -59,7 +58,7 @@ class MainViewModel : ViewModel() {
     fun clearActiveSearchQuery() {
         if (_activeSearchQuery.value != null) {
             _activeSearchQuery.value = null
-            utils.debugLog("ViewModel: Cleared activeSearchQuery")
+            Utils.debugLog("ViewModel: Cleared activeSearchQuery")
         }
     }
 
@@ -98,7 +97,7 @@ class MainActivity : AppCompatActivity() {
         // Observar mudanças no tipo de fragmento para atualizar a UI (título e menu)
         viewModel.currentFragmentType
             .onEach { fragmentType ->
-                utils.debugLog("MainActivity: CurrentFragmentType changed to $fragmentType, updating UI.")
+                Utils.debugLog("MainActivity: CurrentFragmentType changed to $fragmentType, updating UI.")
                 updateToolbarTitleForType(fragmentType)
                 invalidateOptionsMenu() // Sempre invalida para mostrar/esconder o menu de pesquisa
             }
@@ -123,10 +122,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupAnalytics() {
         val settings = getSharedPreferences("AllTransPref", MODE_PRIVATE)
-        utils.Debug = settings.getBoolean("Debug", false)
+        Utils.Debug = settings.getBoolean("Debug", false)
         val anonCollection = settings.getBoolean("Anon", true)
         mFirebaseAnalytics = FirebaseAnalytics.getInstance(this)
-        utils.debugLog("Is Anonymous Analytics Collection enabled: $anonCollection")
+        Utils.debugLog("Is Anonymous Analytics Collection enabled: $anonCollection")
         mFirebaseAnalytics?.setAnalyticsCollectionEnabled(anonCollection)
     }
 
@@ -172,7 +171,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun navigateToFragmentType(type: MainViewModel.FragmentType, setSelectedItemInBottomNav: Boolean) {
-        utils.debugLog("MainActivity: Navigating to fragment type: $type. Current ViewModel type: ${viewModel.currentFragmentType.value}")
+        Utils.debugLog("MainActivity: Navigating to fragment type: $type. Current ViewModel type: ${viewModel.currentFragmentType.value}")
 
         // Atualiza o ViewModel ANTES de tentar colapsar a SearchView ou trocar o fragmento
         val previousFragmentType = viewModel.currentFragmentType.value
@@ -189,7 +188,7 @@ class MainActivity : AppCompatActivity() {
         if (previousFragmentType == MainViewModel.FragmentType.APPS && type != MainViewModel.FragmentType.APPS) {
             searchMenuItem?.let {
                 if (it.isActionViewExpanded) {
-                    utils.debugLog("MainActivity: Collapsing SearchView as navigating away from APPS fragment.")
+                    Utils.debugLog("MainActivity: Collapsing SearchView as navigating away from APPS fragment.")
                     it.collapseActionView() // O listener onMenuItemActionCollapse será chamado
                 }
             }
@@ -210,7 +209,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        utils.debugLog("MainActivity: onCreateOptionsMenu called. Current fragment type: ${viewModel.currentFragmentType.value}")
+        Utils.debugLog("MainActivity: onCreateOptionsMenu called. Current fragment type: ${viewModel.currentFragmentType.value}")
         if (viewModel.currentFragmentType.value == MainViewModel.FragmentType.APPS) {
             menuInflater.inflate(R.menu.main_activity_menu, menu)
             MenuCompat.setGroupDividerEnabled(menu, true)
@@ -222,7 +221,7 @@ class MainActivity : AppCompatActivity() {
             searchView?.maxWidth = Integer.MAX_VALUE
 
             val queryToRestore = viewModel.activeSearchQuery.value
-            utils.debugLog("MainActivity: Restoring query to SearchView: '$queryToRestore'")
+            Utils.debugLog("MainActivity: Restoring query to SearchView: '$queryToRestore'")
             if (!queryToRestore.isNullOrEmpty()) {
                 // Adicionar um pequeno delay pode ajudar se a SearchView não estiver pronta para aceitar a query imediatamente
                 searchMenuItem?.expandActionView()
@@ -231,7 +230,7 @@ class MainActivity : AppCompatActivity() {
 
             searchView?.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
                 override fun onQueryTextSubmit(query: String?): Boolean {
-                    utils.debugLog("MainActivity: SearchView submitted: '$query'")
+                    Utils.debugLog("MainActivity: SearchView submitted: '$query'")
                     viewModel.updateActiveSearchQuery(query) // Atualiza ViewModel
                     val currentFragment = supportFragmentManager.findFragmentById(R.id.toReplace)
                     if (currentFragment is SearchableFragment) {
@@ -242,7 +241,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onQueryTextChange(newText: String?): Boolean {
-                    utils.debugLog("MainActivity: SearchView text changed: '$newText'")
+                    Utils.debugLog("MainActivity: SearchView text changed: '$newText'")
                     viewModel.updateActiveSearchQuery(newText) // Atualiza ViewModel em tempo real
                     val currentFragment = supportFragmentManager.findFragmentById(R.id.toReplace)
                     if (currentFragment is SearchableFragment) {
@@ -254,7 +253,7 @@ class MainActivity : AppCompatActivity() {
 
             searchMenuItem?.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
                 override fun onMenuItemActionExpand(item: MenuItem): Boolean {
-                    utils.debugLog("MainActivity: SearchView expanded.")
+                    Utils.debugLog("MainActivity: SearchView expanded.")
                     // Se houver uma query na ViewModel, preencha a SearchView ao expandir
                     val queryToRestoreOnExpand = viewModel.activeSearchQuery.value
                     if (!queryToRestoreOnExpand.isNullOrEmpty()) {
@@ -264,7 +263,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
-                    utils.debugLog("MainActivity: SearchView collapsed.")
+                    Utils.debugLog("MainActivity: SearchView collapsed.")
                     viewModel.clearActiveSearchQuery() // Limpa a query na ViewModel
                     val currentFragment = supportFragmentManager.findFragmentById(R.id.toReplace)
                     if (currentFragment is SearchableFragment) {
@@ -307,13 +306,13 @@ class MainActivity : AppCompatActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (searchMenuItem?.isActionViewExpanded == true) {
-                    utils.debugLog("MainActivity: Back pressed - collapsing SearchView.")
+                    Utils.debugLog("MainActivity: Back pressed - collapsing SearchView.")
                     searchMenuItem?.collapseActionView() // O listener cuidará de limpar a query
                 } else if (viewModel.currentFragmentType.value != MainViewModel.FragmentType.APPS) {
-                    utils.debugLog("MainActivity: Back pressed - navigating to APPS fragment.")
+                    Utils.debugLog("MainActivity: Back pressed - navigating to APPS fragment.")
                     navigateToFragmentType(MainViewModel.FragmentType.APPS, true) // true para selecionar o item na BottomNav
                 } else {
-                    utils.debugLog("MainActivity: Back pressed - allowing super.onBackPressed.")
+                    Utils.debugLog("MainActivity: Back pressed - allowing super.onBackPressed.")
                     if (isEnabled) { // Necessário para o callback do OnBackPressedDispatcher
                         isEnabled = false
                         onBackPressedDispatcher.onBackPressed() // Chama o comportamento padrão
@@ -324,7 +323,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun replaceFragment(fragment: Fragment) {
-        utils.debugLog("MainActivity: Replacing fragment with ${fragment.javaClass.simpleName}")
+        Utils.debugLog("MainActivity: Replacing fragment with ${fragment.javaClass.simpleName}")
         supportFragmentManager.beginTransaction()
             .replace(R.id.toReplace, fragment)
             .commit()

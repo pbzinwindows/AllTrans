@@ -8,9 +8,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
-import okhttp3.ResponseBody
-import okhttp3.MediaType
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import java.io.IOException
 import okhttp3.ResponseBody.Companion.toResponseBody
 
@@ -33,7 +30,7 @@ internal class MyResultReceiver(
 
         if (resultCode == RESULT_CODE_OK && resultData != null) {
             val translatedString = resultData.getString(KEY_RESULT_STRING, originalText)
-            utils.debugLog(MyResultReceiver.Companion.TAG + ": Received OK result: [" + translatedString + "]")
+            Utils.debugLog(MyResultReceiver.Companion.TAG + ": Received OK result: [" + translatedString + "]")
 
             // CORREÇÃO: Usando a sintaxe correta para criar ResponseBody com a extensão toResponseBody
             val response = Response.Builder()
@@ -67,7 +64,7 @@ internal class MyResultReceiver(
                 "Received ERROR result code (" + resultCode + ") or null data. Error: " + errorMessage
             )
             // CORREÇÃO: Passe o Call simulado como primeiro argumento (Erro 57 no MyResultReceiver original)
-            originalCallback.onFailure(mockCall, IOException("gtransProvider failed: " + errorMessage))
+            originalCallback.onFailure(mockCall, IOException("GtransProvider failed: " + errorMessage))
         }
     }
 

@@ -9,7 +9,6 @@ import android.content.pm.ApplicationInfo
 import android.database.Cursor
 import android.graphics.Paint
 import android.graphics.text.MeasuredText
-import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.Bundle
@@ -36,7 +35,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
     override fun afterHookedMethod(methodHookParam: MethodHookParam) {
         try {
             if (methodHookParam.args == null || methodHookParam.args.isEmpty() || (methodHookParam.args[0] !is Context)) {
-                utils.debugLog("AllTrans: Invalid args in attachBaseContext hook.")
+                Utils.debugLog("AllTrans: Invalid args in attachBaseContext hook.")
                 return
             }
 
@@ -46,11 +45,11 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
 
             // Verificar se é um serviço do sistema que deve ser ignorado
             if (isSystemServiceToSkip(packageName)) {
-                utils.debugLog("AllTrans: Skipping system service: $packageName")
+                Utils.debugLog("AllTrans: Skipping system service: $packageName")
                 return
             }
 
-            utils.debugLog("AllTrans: in after attachBaseContext of ContextWrapper for package $packageName")
+            Utils.debugLog("AllTrans: in after attachBaseContext of ContextWrapper for package $packageName")
 
             // Tentativa progressiva de obter um contexto válido
             var usableContext: Context? = null
@@ -59,7 +58,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
             val appContext = baseContext.applicationContext
             if (appContext != null) {
                 usableContext = appContext
-                utils.debugLog("AllTrans: Got application context from baseContext")
+                Utils.debugLog("AllTrans: Got application context from baseContext")
             }
             // 2. Se nulo, tentar o thisObject como ContextWrapper
             else if (methodHookParam.thisObject is ContextWrapper) {
@@ -68,49 +67,49 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                     val wrapperAppContext = wrapper.applicationContext
                     if (wrapperAppContext != null) {
                         usableContext = wrapperAppContext
-                        utils.debugLog("AllTrans: Got application context from ContextWrapper.thisObject")
+                        Utils.debugLog("AllTrans: Got application context from ContextWrapper.thisObject")
                     }
                 } catch (e: Exception) {
-                    utils.debugLog("AllTrans: Error accessing ContextWrapper.applicationContext: ${e.message}")
+                    Utils.debugLog("AllTrans: Error accessing ContextWrapper.applicationContext: ${e.message}")
                 }
 
                 // 3. Se ainda nulo, usar o próprio baseContext como fallback
                 if (usableContext == null) {
                     usableContext = baseContext
-                    utils.debugLog("AllTrans: Using baseContext directly as fallback")
+                    Utils.debugLog("AllTrans: Using baseContext directly as fallback")
                 }
             }
 
             // Se ainda não temos contexto utilizável, log e retornar
             if (usableContext == null) {
-                utils.debugLog("AllTrans: Unable to find a usable context for package $packageName")
+                Utils.debugLog("AllTrans: Unable to find a usable context for package $packageName")
                 return
             }
 
             // Define o contexto global se ainda não estiver definido
-            if (alltrans.context == null) {
-                alltrans.context = usableContext
-                utils.debugLog("AllTrans: Application context set successfully from attachBaseContext for package: $packageName")
+            if (Alltrans.context == null) {
+                Alltrans.context = usableContext
+                Utils.debugLog("AllTrans: Application context set successfully from attachBaseContext for package: $packageName")
             }
 
             // Inicializar a chave da tag
-            alltrans.initializeTagKeyIfNeeded()
+            Alltrans.initializeTagKeyIfNeeded()
 
             // *** NOVA VERIFICAÇÃO PARA EVITAR CHAMADA PARA O PRÓPRIO PACOTE ***
             if (packageName != "akhil.alltrans") {
                 try {
                     readPrefAndHook(usableContext)
                 } catch (e: Throwable) {
-                    utils.debugLog("AllTrans: Error in readPrefAndHook from attachBaseContext: ${e.message}")
+                    Utils.debugLog("AllTrans: Error in readPrefAndHook from attachBaseContext: ${e.message}")
                     // Não propagar a exceção, permitindo que o aplicativo continue inicializando
                 }
             } else {
-                utils.debugLog("AllTrans: Skipping readPrefAndHook for own package $packageName in attachBaseContext.")
+                Utils.debugLog("AllTrans: Skipping readPrefAndHook for own package $packageName in attachBaseContext.")
                 // Para o próprio pacote AllTrans, podemos querer fazer outras inicializações mínimas se necessário,
                 // mas NÃO ler preferências via ContentProvider que ele mesmo está tentando publicar.
             }
         } catch (e: Throwable) {
-            utils.debugLog("Caught Exception in attachBaseContext ${Log.getStackTraceString(e)}")
+            Utils.debugLog("Caught Exception in attachBaseContext ${Log.getStackTraceString(e)}")
             XposedBridge.log(e)
             // Não propagar a exceção, permitindo que o aplicativo continue inicializando
         }
@@ -141,51 +140,89 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
 
             try {
                 // Tentar primeiro via proxy
-                if (alltrans.isProxyEnabled) {
+                if (Alltrans.isProxyEnabled) {
                     try {
-                        val proxyUri = "content://settings/system/alltransProxyProviderURI/akhil.alltrans.sharedPrefProvider/$packageName".toUri()
-                        cursor = context.contentResolver.query(proxyUri, null, null, null, null)
+                        val proxyUri = "content://settings/system/alltransProxyProviderURI/akhil.alltrans.SharedPrefProvider/$packageName".toUri()
+
+                        // Usa Android O (API 26) e superior com FLAGS para operações assíncronas
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            // Definir manualmente as constantes que só existem no Android O ou superior
+                            val queryArgSqlSelectionBehavior = "android:queryArgSelectionBehavior"
+                            val selectionBehaviorStrict = 0
+                            val extraHonoredArgs = "android:honorsExtraArgs"
+                            val queryArgAsyncComputation = "android:asyncQuery"
+
+                            val queryArgs = Bundle()
+                            queryArgs.putInt(queryArgSqlSelectionBehavior, selectionBehaviorStrict)
+                            queryArgs.putBoolean(queryArgAsyncComputation, true)
+                            queryArgs.putInt(extraHonoredArgs, 1)
+
+                            cursor = context.contentResolver.query(proxyUri, null, queryArgs, null)
+                        } else {
+                            // Fallback para API antiga
+                            cursor = context.contentResolver.query(proxyUri, null, null, null, null)
+                        }
+
                         if (cursor != null && cursor.moveToFirst()) {
                             val dataColumnIndex = 0
                             if (cursor.columnCount > dataColumnIndex) {
                                 globalPref = cursor.getString(dataColumnIndex)
                                 if (cursor.moveToNext()) localPref = cursor.getString(dataColumnIndex)
-                                utils.debugLog("Proxy query successful for $packageName.")
+                                Utils.debugLog("Proxy query successful for $packageName.")
                             } else {
-                                utils.debugLog("Proxy query cursor has no columns.")
+                                Utils.debugLog("Proxy query cursor has no columns.")
                             }
                         } else {
-                            utils.debugLog("Proxy query failed or empty for $packageName.")
+                            Utils.debugLog("Proxy query failed or empty for $packageName.")
                         }
                     } catch (e: Exception) {
-                        utils.debugLog("Proxy query exception: ${e.message}")
+                        Utils.debugLog("Proxy query exception: ${e.message}")
                     } finally {
                         cursor?.close()
                         cursor = null
                     }
                 } else {
-                    utils.debugLog("Proxy is disabled, skipping proxy query.")
+                    Utils.debugLog("Proxy is disabled, skipping proxy query.")
                 }
 
                 // Se o proxy falhar, tentar conexão direta
                 if (globalPref == null) {
                     try {
-                        val directUri = "content://akhil.alltrans.sharedPrefProvider/$packageName".toUri()
-                        cursor = context.contentResolver.query(directUri, null, null, null, null)
+                        val directUri = "content://akhil.alltrans.SharedPrefProvider/$packageName".toUri()
+
+                        // Usa Android O (API 26) e superior com FLAGS para operações assíncronas
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            // Definir manualmente as constantes que só existem no Android O ou superior
+                            val queryArgSqlSelectionBehavior = "android:queryArgSelectionBehavior"
+                            val selectionBehaviorStrict = 0
+                            val extraHonoredArgs = "android:honorsExtraArgs"
+                            val queryArgAsyncComputation = "android:asyncQuery"
+
+                            val queryArgs = Bundle()
+                            queryArgs.putInt(queryArgSqlSelectionBehavior, selectionBehaviorStrict)
+                            queryArgs.putBoolean(queryArgAsyncComputation, true)
+                            queryArgs.putInt(extraHonoredArgs, 1)
+
+                            cursor = context.contentResolver.query(directUri, null, queryArgs, null)
+                        } else {
+                            // Fallback para API antiga
+                            cursor = context.contentResolver.query(directUri, null, null, null, null)
+                        }
+
                         if (cursor != null && cursor.moveToFirst()) {
                             val dataColumnIndex = 0
                             if (cursor.columnCount > dataColumnIndex) {
                                 globalPref = cursor.getString(dataColumnIndex)
                                 if (cursor.moveToNext()) localPref = cursor.getString(dataColumnIndex)
-                                utils.debugLog("Direct query successful for $packageName.")
+                                Utils.debugLog("Direct query successful for $packageName.")
                             } else {
-                                utils.debugLog("Direct query cursor has no columns.")
+                                Utils.debugLog("Direct query cursor has no columns.")
                             }
                         } else {
-                            utils.debugLog("Direct query failed or empty for $packageName.")
+                            Utils.debugLog("Direct query failed or empty for $packageName.")
                         }
                     } catch (e: Exception) {
-                        utils.debugLog("Direct query exception: ${Log.getStackTraceString(e)}")
+                        Utils.debugLog("Direct query exception: ${Log.getStackTraceString(e)}")
                     } finally {
                         cursor?.close()
                     }
@@ -208,16 +245,16 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
         // Função readPrefAndHook otimizada com melhor tratamento de erros
         fun readPrefAndHook(context: Context?) {
             if (context == null) {
-                utils.debugLog("AllTrans: readPrefAndHook called with null context")
+                Utils.debugLog("AllTrans: readPrefAndHook called with null context")
                 return
             }
 
             val packageName = context.packageName
-            utils.debugLog("readPrefAndHook for $packageName")
+            Utils.debugLog("readPrefAndHook for $packageName")
 
             // Verificar se é um aplicativo do sistema que deve ser ignorado
             if (isSystemAppToSkip(context)) {
-                utils.debugLog("AllTrans: Skipping system app: $packageName")
+                Utils.debugLog("AllTrans: Skipping system app: $packageName")
                 return
             }
 
@@ -225,7 +262,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
             try {
                 val prefsBundle = getPreferencesViaProviders(context, packageName)
                 if (prefsBundle == null) {
-                    utils.debugLog("AllTrans: No preferences found for $packageName, skipping hooks")
+                    Utils.debugLog("AllTrans: No preferences found for $packageName, skipping hooks")
                     return
                 }
 
@@ -233,31 +270,31 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 val localPref = prefsBundle.getString("localPref")
 
                 if (globalPref.isNullOrEmpty()) {
-                    utils.debugLog("AllTrans: Empty global preferences for $packageName, skipping hooks")
+                    Utils.debugLog("AllTrans: Empty global preferences for $packageName, skipping hooks")
                     return
                 }
 
                 // Aplicar preferências
                 try {
                     PreferenceList.getPref(globalPref, localPref ?: "", packageName)
-                    utils.Debug = PreferenceList.Debug
+                    Utils.Debug = PreferenceList.Debug
                 } catch (e: Exception) {
-                    utils.debugLog("AllTrans: Error applying preferences: ${e.message}")
+                    Utils.debugLog("AllTrans: Error applying preferences: ${e.message}")
                     return
                 }
 
                 // Verificar se o módulo está habilitado para este pacote
                 if (!PreferenceList.Enabled || !PreferenceList.LocalEnabled) {
-                    utils.debugLog("AllTrans disabled for $packageName")
+                    Utils.debugLog("AllTrans disabled for $packageName")
                     return
                 }
-                utils.debugLog("AllTrans Enabled for $packageName")
+                Utils.debugLog("AllTrans Enabled for $packageName")
 
                 // Gerenciar cache
                 try {
                     manageCache(context)
                 } catch (e: Exception) {
-                    utils.debugLog("AllTrans: Error managing cache: ${e.message}")
+                    Utils.debugLog("AllTrans: Error managing cache: ${e.message}")
                     // Continuar mesmo com erro de cache
                 }
 
@@ -265,29 +302,29 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 try {
                     applyTextViewHooks()
                 } catch (e: Exception) {
-                    utils.debugLog("AllTrans: Error applying TextView hooks: ${e.message}")
+                    Utils.debugLog("AllTrans: Error applying TextView hooks: ${e.message}")
                 }
 
                 try {
                     applyWebViewHooks(packageName)
                 } catch (e: Exception) {
-                    utils.debugLog("AllTrans: Error applying WebView hooks: ${e.message}")
+                    Utils.debugLog("AllTrans: Error applying WebView hooks: ${e.message}")
                 }
 
                 try {
                     applyDrawTextHooks()
                 } catch (e: Exception) {
-                    utils.debugLog("AllTrans: Error applying DrawText hooks: ${e.message}")
+                    Utils.debugLog("AllTrans: Error applying DrawText hooks: ${e.message}")
                 }
 
                 try {
                     applyNotificationHooks()
                 } catch (e: Exception) {
-                    utils.debugLog("AllTrans: Error applying Notification hooks: ${e.message}")
+                    Utils.debugLog("AllTrans: Error applying Notification hooks: ${e.message}")
                 }
 
             } catch (e: Exception) {
-                utils.debugLog("AllTrans: Error in readPrefAndHook main flow: ${Log.getStackTraceString(e)}")
+                Utils.debugLog("AllTrans: Error in readPrefAndHook main flow: ${Log.getStackTraceString(e)}")
             }
         }
 
@@ -326,7 +363,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                     }
                 }
             } catch (e: Exception) {
-                utils.debugLog("Error checking if system app: ${e.message}")
+                Utils.debugLog("Error checking if system app: ${e.message}")
             }
 
             return false
@@ -341,17 +378,17 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 loadCacheFromDisk(context)
             } else {
                 // Limpar o cache se o caching estiver desativado
-                alltrans.cacheAccess.acquireUninterruptibly()
+                Alltrans.cacheAccess.acquireUninterruptibly()
                 try {
-                    if (alltrans.cache == null) {
-                        alltrans.cache = HashMap()
+                    if (Alltrans.cache == null) {
+                        Alltrans.cache = HashMap()
                     } else {
-                        alltrans.cache?.clear()
+                        Alltrans.cache?.clear()
                     }
-                    utils.debugLog("Caching disabled, cache cleared.")
+                    Utils.debugLog("Caching disabled, cache cleared.")
                 } finally {
-                    if (alltrans.cacheAccess.availablePermits() == 0) {
-                        alltrans.cacheAccess.release()
+                    if (Alltrans.cacheAccess.availablePermits() == 0) {
+                        Alltrans.cacheAccess.release()
                     }
                 }
             }
@@ -366,15 +403,15 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
             var semaphoreAcquired = false
 
             // Certifica-se de que o cache esteja inicializado mesmo antes de tentar ler
-            if (alltrans.cache == null) {
-                alltrans.cache = HashMap()
+            if (Alltrans.cache == null) {
+                Alltrans.cache = HashMap()
             }
 
             try {
                 // Verifica se o arquivo tem tamanho válido antes de tentar ler
                 val cacheFile = File(context.filesDir, "AllTransCache")
                 if (!cacheFile.exists() || cacheFile.length() == 0L) {
-                    utils.debugLog("Cache file not found or empty, starting fresh.")
+                    Utils.debugLog("Cache file not found or empty, starting fresh.")
                     return
                 }
 
@@ -382,16 +419,16 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 try {
                     fis = context.openFileInput("AllTransCache")
                 } catch (fnf: FileNotFoundException) {
-                    utils.debugLog("Cache file not found, starting fresh.")
+                    Utils.debugLog("Cache file not found, starting fresh.")
                     return
                 }
 
                 // Tenta adquirir o semáforo antes de qualquer operação de leitura
-                alltrans.cacheAccess.acquireUninterruptibly()
+                Alltrans.cacheAccess.acquireUninterruptibly()
                 semaphoreAcquired = true
 
                 // Limpar o cache existente
-                val cacheRef = alltrans.cache
+                val cacheRef = Alltrans.cache
                 cacheRef?.clear()
 
                 try {
@@ -405,29 +442,29 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                         @Suppress("UNCHECKED_CAST")
                         val typedMap = readObj as HashMap<String?, String?>
                         cacheRef?.putAll(typedMap)
-                        utils.debugLog("Cache loaded successfully. Size: ${cacheRef?.size ?: 0}")
+                        Utils.debugLog("Cache loaded successfully. Size: ${cacheRef?.size ?: 0}")
                     } else {
-                        utils.debugLog("Cache object is not of type HashMap<String?, String?>")
+                        Utils.debugLog("Cache object is not of type HashMap<String?, String?>")
                     }
                 } catch (e: ClassNotFoundException) {
-                    utils.debugLog("Cache format incompatible: ${e.message}")
+                    Utils.debugLog("Cache format incompatible: ${e.message}")
                     // Deleta o arquivo incompatível
                     context.deleteFile("AllTransCache")
                 } catch (e: EOFException) {
-                    utils.debugLog("Cache file corrupt (EOF): ${e.message}")
+                    Utils.debugLog("Cache file corrupt (EOF): ${e.message}")
                     // Deleta o arquivo corrompido
                     context.deleteFile("AllTransCache")
                 } catch (e: IOException) {
-                    utils.debugLog("IO error reading cache: ${e.message}")
+                    Utils.debugLog("IO error reading cache: ${e.message}")
                     // Deleta o arquivo potencialmente corrompido
                     context.deleteFile("AllTransCache")
                 }
             } catch (e: Throwable) {
-                utils.debugLog("Error reading cache: ${e.message}")
+                Utils.debugLog("Error reading cache: ${e.message}")
                 // Tenta deletar o arquivo potencialmente corrompido
                 try {
                     context.deleteFile("AllTransCache")
-                    utils.debugLog("Deleted potentially corrupted cache file.")
+                    Utils.debugLog("Deleted potentially corrupted cache file.")
                 } catch (ignored: Exception) {}
             } finally {
                 // Garantir que os recursos sejam fechados corretamente
@@ -435,8 +472,8 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 try { fis?.close() } catch (ignored: IOException) {}
 
                 // Libera o semáforo apenas se ele foi adquirido
-                if (semaphoreAcquired && alltrans.cacheAccess.availablePermits() == 0) {
-                    alltrans.cacheAccess.release()
+                if (semaphoreAcquired && Alltrans.cacheAccess.availablePermits() == 0) {
+                    Alltrans.cacheAccess.release()
                 }
             }
         }
@@ -448,7 +485,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
             val setTextHook = SetTextHookHandler()
 
             if (PreferenceList.SetText) {
-                utils.tryHookMethod(
+                Utils.tryHookMethod(
                     TextView::class.java,
                     "setText",
                     CharSequence::class.java,
@@ -460,7 +497,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
             }
 
             if (PreferenceList.SetHint) {
-                utils.tryHookMethod(
+                Utils.tryHookMethod(
                     TextView::class.java,
                     "setHint",
                     CharSequence::class.java,
@@ -474,17 +511,17 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
          */
         private fun applyWebViewHooks(packageName: String) {
             if (PreferenceList.LoadURL) {
-                utils.debugLog("Applying WebView hooks for $packageName")
+                Utils.debugLog("Applying WebView hooks for $packageName")
 
                 // Hook onAttachedToWindow em vez do construtor
-                utils.tryHookMethod(
+                Utils.tryHookMethod(
                     WebView::class.java,
                     "onAttachedToWindow",
                     WebViewOnCreateHookHandler()
                 )
 
                 // Hook no método setWebViewClient
-                utils.tryHookMethod(
+                Utils.tryHookMethod(
                     WebView::class.java,
                     "setWebViewClient",
                     WebViewClient::class.java,
@@ -497,12 +534,12 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
          * Aplica hooks aos métodos DrawText
          */
         private fun applyDrawTextHooks() {
-            if (PreferenceList.DrawText && alltrans.baseRecordingCanvas != null) {
-                utils.debugLog("Applying DrawText hooks")
-                val canvasClass: Class<*>? = alltrans.baseRecordingCanvas
+            if (PreferenceList.DrawText && Alltrans.baseRecordingCanvas != null) {
+                Utils.debugLog("Applying DrawText hooks")
+                val canvasClass: Class<*>? = Alltrans.baseRecordingCanvas
 
                 // Hooks básicos de desenho de texto
-                utils.tryHookMethod(
+                Utils.tryHookMethod(
                     canvasClass,
                     "drawText",
                     CharArray::class.java,
@@ -511,20 +548,20 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                     Float::class.javaPrimitiveType,
                     Float::class.javaPrimitiveType,
                     Paint::class.java,
-                    alltrans.drawTextHook
+                    Alltrans.drawTextHook
                 )
 
-                utils.tryHookMethod(
+                Utils.tryHookMethod(
                     canvasClass,
                     "drawText",
                     String::class.java,
                     Float::class.javaPrimitiveType,
                     Float::class.javaPrimitiveType,
                     Paint::class.java,
-                    alltrans.drawTextHook
+                    Alltrans.drawTextHook
                 )
 
-                utils.tryHookMethod(
+                Utils.tryHookMethod(
                     canvasClass,
                     "drawText",
                     String::class.java,
@@ -533,10 +570,10 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                     Float::class.javaPrimitiveType,
                     Float::class.javaPrimitiveType,
                     Paint::class.java,
-                    alltrans.drawTextHook
+                    Alltrans.drawTextHook
                 )
 
-                utils.tryHookMethod(
+                Utils.tryHookMethod(
                     canvasClass,
                     "drawText",
                     CharSequence::class.java,
@@ -545,12 +582,12 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                     Float::class.javaPrimitiveType,
                     Float::class.javaPrimitiveType,
                     Paint::class.java,
-                    alltrans.drawTextHook
+                    Alltrans.drawTextHook
                 )
 
                 // Hooks para API 23+
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    utils.tryHookMethod(
+                    Utils.tryHookMethod(
                         canvasClass,
                         "drawText",
                         CharArray::class.java,
@@ -560,10 +597,10 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                         Float::class.javaPrimitiveType,
                         Int::class.javaPrimitiveType,
                         Paint::class.java,
-                        alltrans.drawTextHook
+                        Alltrans.drawTextHook
                     )
 
-                    utils.tryHookMethod(
+                    Utils.tryHookMethod(
                         canvasClass,
                         "drawTextRun",
                         CharArray::class.java,
@@ -575,10 +612,10 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                         Float::class.javaPrimitiveType,
                         Boolean::class.javaPrimitiveType,
                         Paint::class.java,
-                        alltrans.drawTextHook
+                        Alltrans.drawTextHook
                     )
 
-                    utils.tryHookMethod(
+                    Utils.tryHookMethod(
                         canvasClass,
                         "drawTextRun",
                         CharSequence::class.java,
@@ -590,11 +627,11 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                         Float::class.javaPrimitiveType,
                         Boolean::class.javaPrimitiveType,
                         Paint::class.java,
-                        alltrans.drawTextHook
+                        Alltrans.drawTextHook
                     )
                 }
 
-                utils.tryHookMethod(
+                Utils.tryHookMethod(
                     canvasClass,
                     "drawTextRun",
                     MeasuredText::class.java,
@@ -606,7 +643,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                     Float::class.javaPrimitiveType,
                     Boolean::class.javaPrimitiveType,
                     Paint::class.java,
-                    alltrans.drawTextHook
+                    Alltrans.drawTextHook
                 )
             }
         }
@@ -616,13 +653,13 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
          */
         private fun applyNotificationHooks() {
             if (PreferenceList.Notif) {
-                utils.debugLog("Applying Notification hooks")
+                Utils.debugLog("Applying Notification hooks")
 
                 // Hook básico da notificação
                 XposedBridge.hookAllMethods(
                     NotificationManager::class.java,
                     "notify",
-                    alltrans.notifyHook
+                    Alltrans.notifyHook
                 )
 
                 // Hook para API 21+
@@ -635,10 +672,10 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                             Int::class.javaPrimitiveType,
                             Notification::class.java,
                             UserHandle::class.java,
-                            alltrans.notifyHook
+                            Alltrans.notifyHook
                         )
                     } catch (t: Throwable) {
-                        utils.debugLog("notifyAsUser hook failed (might not exist): ${t.message}")
+                        Utils.debugLog("notifyAsUser hook failed (might not exist): ${t.message}")
                     }
                 }
             }
@@ -650,7 +687,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
         private fun clearCacheIfNeeded(context: Context?, cachingTime: Long) {
             if (cachingTime <= 0L || context == null) return
 
-            alltrans.cacheAccess.acquireUninterruptibly()
+            Alltrans.cacheAccess.acquireUninterruptibly()
             var lastClearTime: Long = 0
             var fis: FileInputStream? = null
             var ois: ObjectInputStream? = null
@@ -670,7 +707,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
             val timeSinceLastClear = currentTime - lastClearTime
 
             if (lastClearTime == 0L || timeSinceLastClear > cachingTime) {
-                utils.debugLog("Time since last cache clear: ${timeSinceLastClear}ms, clearing cache...")
+                Utils.debugLog("Time since last cache clear: ${timeSinceLastClear}ms, clearing cache...")
                 var fos: FileOutputStream? = null
                 var oos: ObjectOutputStream? = null
 
@@ -682,8 +719,8 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
 
                     // Limpar o arquivo de cache e o objeto cache em memória
                     context.deleteFile("AllTransCache")
-                    alltrans.cache?.clear()
-                    utils.debugLog("Cache cleared successfully.")
+                    Alltrans.cache?.clear()
+                    Utils.debugLog("Cache cleared successfully.")
                 } catch (e: Throwable) {
                     Log.e("AllTrans", "Error clearing cache", e)
                 } finally {
@@ -691,11 +728,11 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                     try { fos?.close() } catch (ignored: IOException) {}
                 }
             } else {
-                utils.debugLog("No need to clear cache. Time since last clear: ${timeSinceLastClear}ms")
+                Utils.debugLog("No need to clear cache. Time since last clear: ${timeSinceLastClear}ms")
             }
 
-            if (alltrans.cacheAccess.availablePermits() == 0) {
-                alltrans.cacheAccess.release()
+            if (Alltrans.cacheAccess.availablePermits() == 0) {
+                Alltrans.cacheAccess.release()
             }
         }
     }
