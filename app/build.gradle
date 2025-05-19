@@ -1,12 +1,7 @@
 // Apply plugins at the top
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
-// A ordem de aplicação dos plugins do Firebase é importante.
-// Geralmente, 'com.google.gms.google-services' vem primeiro ou no final,
-// e 'com.google.firebase.crashlytics' depois de 'com.android.application' e 'kotlin-android'.
-// A forma como você tem (no final com afterEvaluate) também funciona, mas esta é uma alternativa.
-apply plugin: 'com.google.firebase.crashlytics'
-
+// Firebase Crashlytics plugin removido
 
 android {
     signingConfigs {
@@ -80,11 +75,6 @@ dependencies {
 
     implementation 'androidx.constraintlayout:constraintlayout:2.2.1' // Exemplo de versão, verifique a mais recente
 
-    // Firebase
-    implementation platform('com.google.firebase:firebase-bom:33.13.0') // BOM para gerenciar versões Firebase
-    implementation 'com.google.firebase:firebase-analytics-ktx' // Usar -ktx para APIs Kotlin-friendly
-    implementation 'com.google.firebase:firebase-crashlytics-ktx' // Usar -ktx
-
     // ML Kit
     implementation 'com.google.mlkit:translate:17.0.3' // 17.0.2 é a última estável conhecida, verifique se 17.0.3 tem algum problema específico.
 
@@ -94,12 +84,7 @@ dependencies {
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3' // (1.8.1 é mais recente)
 }
 
-// Apply google-services plugin no final do arquivo, como você tinha, ou aqui se preferir.
-// Este plugin precisa ler as dependências, então sua posição original no final é correta.
-apply plugin: 'com.google.gms.google-services'
-
-// O plugin kotlin-android já está aplicado no topo, não precisa aqui novamente.
-// apply plugin: 'org.jetbrains.kotlin.android'
+// Plugin Google Services removido
 
 // Suas tasks customizadas (mantidas como estão)
 afterEvaluate {

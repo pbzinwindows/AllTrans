@@ -43,6 +43,32 @@
             app:useSimpleSummaryProvider="true"
             android:layout="@layout/preference_material_item" />
 
+        <SwitchPreference
+            app:iconSpaceReserved="false"
+            app:defaultValue="false"
+            app:key="UseCustomSubscription"
+            app:summaryOff="@string/use_global_subscription_summary"
+            app:summaryOn="@string/use_custom_subscription_summary"
+            app:title="@string/use_custom_subscription_title" />
+
+        <EditTextPreference
+            app:iconSpaceReserved="false"
+            app:key="CustomSubscriptionKey"
+            app:title="@string/subKey_micro"
+            app:summary="@string/subKey_summary"
+            app:defaultValue=""
+            app:useSimpleSummaryProvider="true"
+            android:layout="@layout/preference_material_item" />
+
+        <EditTextPreference
+            app:iconSpaceReserved="false"
+            app:key="CustomSubscriptionRegion"
+            app:title="@string/subRegion_micro"
+            app:summary="@string/subRegion_summary"
+            app:defaultValue=""
+            app:useSimpleSummaryProvider="true"
+            android:layout="@layout/preference_material_item" />
+
         <ListPreference
             app:iconSpaceReserved="false"
             app:defaultValue="ko"

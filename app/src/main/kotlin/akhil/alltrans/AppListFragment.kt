@@ -19,7 +19,6 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.progressindicator.CircularProgressIndicator
-import com.google.firebase.analytics.FirebaseAnalytics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -33,7 +32,6 @@ class AppListFragment : Fragment(), SearchableFragment {
 
     private var listview: ListView? = null
     private var loadingIndicator: CircularProgressIndicator? = null
-    private var mFirebaseAnalytics: FirebaseAnalytics? = null
     private var adapter: StableArrayAdapter? = null
     // currentAppliedFilterQuery não é mais necessário aqui, o adapter será filtrado pelo observador da ViewModel
 
@@ -58,7 +56,6 @@ class AppListFragment : Fragment(), SearchableFragment {
         listview = view.findViewById(R.id.AppsList)
 
         settings = requireActivity().getSharedPreferences("AllTransPref", Context.MODE_PRIVATE)
-        mFirebaseAnalytics = FirebaseAnalytics.getInstance(requireContext())
 
         listview?.choiceMode = ListView.CHOICE_MODE_MULTIPLE
         listview?.isFastScrollEnabled = true
@@ -76,7 +73,6 @@ class AppListFragment : Fragment(), SearchableFragment {
                 Log.e("AppListFragment", "Clicked item at position $position is null in adapter.")
             }
         }
-        fireBaseAnalytics()
 
         // Observar a query de pesquisa da ViewModel para filtrar a lista
         viewLifecycleOwner.lifecycleScope.launch {
@@ -140,7 +136,6 @@ class AppListFragment : Fragment(), SearchableFragment {
                     val labelB = pm.getApplicationLabel(b).toString().lowercase(Locale.getDefault())
                     labelA.compareTo(labelB)
                 })
-                fireBaseEnabledApps(packages)
                 Utils.debugLog("AppListFragment: Loaded ${packages.size} packages in IO thread.")
                 packages
             }
@@ -161,25 +156,6 @@ class AppListFragment : Fragment(), SearchableFragment {
             loadingIndicator?.isVisible = false
             Utils.debugLog("AppListFragment: loadPackagesAndSetupAdapter finished.")
         }
-    }
-
-    // --- O RESTANTE DA CLASSE (ViewHolder, StableArrayAdapter, etc.) PERMANECE O MESMO ---
-    // ... (cole o restante do seu AppListFragment.kt aqui, incluindo:
-    //      fireBaseAnalytics, fireBaseEnabledApps, ViewHolder, StableArrayAdapter,
-    //      getInstalledApplications, companion object)
-    private fun fireBaseAnalytics() {
-        mFirebaseAnalytics?.setUserProperty("Enabled", settings?.getBoolean("Enabled", false).toString())
-        mFirebaseAnalytics?.setUserProperty("TranslatorProvider", settings?.getString("TranslatorProvider", "g"))
-        mFirebaseAnalytics?.setUserProperty("TranslateFromLanguage", settings?.getString("TranslateFromLanguage", "ko"))
-        mFirebaseAnalytics?.setUserProperty("TranslateToLanguage", settings?.getString("TranslateToLanguage", "en"))
-    }
-
-    private fun fireBaseEnabledApps(packages: List<ApplicationInfo>) {
-        var count = 0
-        for (applicationInfo in packages) {
-            if (settings?.contains(applicationInfo.packageName) == true) count++
-        }
-        mFirebaseAnalytics?.setUserProperty("NumAppsTranslating", count.toString())
     }
 
     internal class ViewHolder {

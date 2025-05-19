@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
 import android.widget.Toast
+import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
@@ -25,11 +26,23 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
     private fun handleProviderChange(translatorProviderSelected: String) {
         val translateFromLanguage = findPreference<ListPreference?>("TranslateFromLanguage")
         val translateToLanguage = findPreference<ListPreference?>("TranslateToLanguage")
+        val useCustomSubscription = findPreference<SwitchPreference?>("UseCustomSubscription")
+        val customSubscriptionKey = findPreference<EditTextPreference?>("CustomSubscriptionKey")
+        val customSubscriptionRegion = findPreference<EditTextPreference?>("CustomSubscriptionRegion")
 
-        if(translateFromLanguage == null || translateToLanguage == null) {
-            Log.e("AllTrans", "LocalPref: Language preferences are null in handleProviderChange")
+        if(translateFromLanguage == null || translateToLanguage == null ||
+            useCustomSubscription == null || customSubscriptionKey == null ||
+            customSubscriptionRegion == null) {
+            Log.e("AllTrans", "LocalPref: Language or subscription preferences are null in handleProviderChange")
             return
         }
+
+        // Mostra ou esconde as opções de assinatura personalizada com base no provedor selecionado
+        val isMicrosoft = translatorProviderSelected == "m"
+        useCustomSubscription.isVisible = isMicrosoft
+
+        // A visibilidade dos campos de chave/região depende da opção useCustomSubscription
+        updateSubscriptionFieldsVisibility(useCustomSubscription.isChecked && isMicrosoft)
 
         if (translatorProviderSelected == "y") {
             translateFromLanguage.setEntries(R.array.languageNamesYandex)
@@ -49,6 +62,15 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
         }
         validateListPreferenceValue(translateFromLanguage)
         validateListPreferenceValue(translateToLanguage)
+    }
+
+    // Método para atualizar a visibilidade dos campos de assinatura personalizada
+    private fun updateSubscriptionFieldsVisibility(visible: Boolean) {
+        val customSubscriptionKey = findPreference<EditTextPreference?>("CustomSubscriptionKey")
+        val customSubscriptionRegion = findPreference<EditTextPreference?>("CustomSubscriptionRegion")
+
+        customSubscriptionKey?.isVisible = visible
+        customSubscriptionRegion?.isVisible = visible
     }
 
     private fun validateListPreferenceValue(listPreference: ListPreference?) {
@@ -189,7 +211,8 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
     private fun enableLocalPrefs(enable: Boolean) {
         val keysToToggle = listOf(
             "TranslateFromLanguage", "TranslateToLanguage", "TranslatorProvider", "SetText",
-            "SetHint", "LoadURL", "DrawText", "Notif", "Cache", "Scroll", "Delay", "DelayWebView"
+            "SetHint", "LoadURL", "DrawText", "Notif", "Cache", "Scroll", "Delay", "DelayWebView",
+            "UseCustomSubscription", "CustomSubscriptionKey", "CustomSubscriptionRegion"
         )
         keysToToggle.forEach { key ->
             findPreference<Preference>(key)?.isEnabled = enable
@@ -257,6 +280,16 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
             handleProviderChange(localProvider!!)
         }
 
+        // Configuração do toggle para uso de assinatura personalizada
+        findPreference<SwitchPreference>("UseCustomSubscription")?.apply {
+            setOnPreferenceChangeListener { _, newValue ->
+                val useCustom = newValue as Boolean
+                val isMicrosoft = preferenceManager.sharedPreferences?.getString("TranslatorProvider", "g") == "m"
+                updateSubscriptionFieldsVisibility(useCustom && isMicrosoft)
+                true
+            }
+        }
+
         findPreference<SwitchPreference>("OverRide")?.setOnPreferenceChangeListener { _, newValue ->
             enableLocalPrefs(newValue as Boolean)
             true
@@ -296,6 +329,13 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
             }
             true
         }
+
+        // Inicializar a visibilidade dos campos de assinatura personalizada
+        val useCustom = localPrefs?.getBoolean("UseCustomSubscription", false) ?: false
+        val isMicrosoft = localPrefs?.getString("TranslatorProvider", "g") == "m"
+        val useCustomSubscription = findPreference<SwitchPreference>("UseCustomSubscription")
+        useCustomSubscription?.isVisible = isMicrosoft
+        updateSubscriptionFieldsVisibility(useCustom && isMicrosoft)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

@@ -19,7 +19,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.bottomnavigation.BottomNavigationView
-import com.google.firebase.analytics.FirebaseAnalytics
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.launchIn
@@ -69,7 +68,6 @@ class MainViewModel : ViewModel() {
 
 class MainActivity : AppCompatActivity() {
 
-    private var mFirebaseAnalytics: FirebaseAnalytics? = null
     private lateinit var bottomNavigationView: BottomNavigationView
     private lateinit var toolbar: Toolbar
     private lateinit var appBarLayout: AppBarLayout
@@ -89,7 +87,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         initializeViews()
-        setupAnalytics()
+        setupDebugMode()
         applyWindowInsets()
         setupBottomNavigation()
         setupOnBackPressed()
@@ -120,13 +118,9 @@ class MainActivity : AppCompatActivity() {
         bottomNavigationView = findViewById(R.id.bottom_navigation)
     }
 
-    private fun setupAnalytics() {
+    private fun setupDebugMode() {
         val settings = getSharedPreferences("AllTransPref", MODE_PRIVATE)
         Utils.Debug = settings.getBoolean("Debug", false)
-        val anonCollection = settings.getBoolean("Anon", true)
-        mFirebaseAnalytics = FirebaseAnalytics.getInstance(this)
-        Utils.debugLog("Is Anonymous Analytics Collection enabled: $anonCollection")
-        mFirebaseAnalytics?.setAnalyticsCollectionEnabled(anonCollection)
     }
 
     private fun updateToolbarTitleForType(fragmentType: MainViewModel.FragmentType) {

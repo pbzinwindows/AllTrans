@@ -25,6 +25,9 @@
     <string name="rate_now">Avaliar Agora</string>
     <string name="later">Mais Tarde</string>
 
+    <string name="use_custom_subscription_title">Usar configuração Microsoft personalizada</string>
+    <string name="use_global_subscription_summary">Usando configuração global do Microsoft Translator</string>
+    <string name="use_custom_subscription_summary">Usando chave e região personalizadas para este app</string>
     <string name="subRegion_yandex">Região da Chave Yandex</string>
     <string name="subRegion_micro">Região da Chave Microsoft</string>
     <string name="invalid_language_code">Código de idioma inválido para download do modelo</string>
