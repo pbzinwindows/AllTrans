@@ -373,19 +373,48 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
          * Gerencia o cache do AllTrans
          */
         private fun manageCache(context: Context) {
+            Utils.debugLog("manageCache for ${context.packageName}: Current PreferenceList.Caching = ${PreferenceList.Caching}, PreferenceList.CachingTime (localClearRequestTimestamp) = ${PreferenceList.CachingTime}") // NOVO LOG
+
             if (PreferenceList.Caching) {
+                Utils.debugLog("manageCache for ${context.packageName}: Cache is ENABLED. Calling clearCacheIfNeeded and loadCacheFromDisk.")
                 clearCacheIfNeeded(context, PreferenceList.CachingTime)
                 loadCacheFromDisk(context)
             } else {
-                // Limpar o cache se o caching estiver desativado
+                Utils.debugLog("manageCache for ${context.packageName}: Cache is DISABLED. Clearing in-memory and disk cache.") // LOG MOVIDO/AJUSTADO
                 Alltrans.cacheAccess.acquireUninterruptibly()
                 try {
+                    // Limpa o cache em memória
                     if (Alltrans.cache == null) {
                         Alltrans.cache = HashMap()
                     } else {
                         Alltrans.cache?.clear()
                     }
-                    Utils.debugLog("Caching disabled, cache cleared.")
+                    Utils.debugLog("Caching is disabled for ${context.packageName}. In-memory cache cleared.") // LOG EXISTENTE
+
+                    // Excluir o arquivo de cache do disco também, pois o cache está desabilitado para este app.
+                    val cacheFile = File(context.filesDir, "AllTransCache")
+                    if (cacheFile.exists()) {
+                        if (cacheFile.delete()) {
+                            Utils.debugLog("Disk cache file 'AllTransCache' deleted because caching is disabled for ${context.packageName}.") // LOG EXISTENTE
+                        } else {
+                            Utils.debugLog("Failed to delete disk cache file 'AllTransCache' for ${context.packageName} despite caching being disabled.") // LOG EXISTENTE
+                        }
+                    } else {
+                        Utils.debugLog("Disk cache file 'AllTransCache' not found, no need to delete for ${context.packageName} (caching disabled).") // LOG EXISTENTE
+                    }
+
+                    // Atualiza "AllTransCacheClear"
+                    try {
+                        FileOutputStream(File(context.filesDir, "AllTransCacheClear")).use { fos ->
+                            ObjectOutputStream(fos).use { oos ->
+                                oos.writeObject(System.currentTimeMillis())
+                            }
+                        }
+                        Utils.debugLog("Updated 'AllTransCacheClear' timestamp as caching is now disabled for ${context.packageName}.") // LOG EXISTENTE
+                    } catch (e: Exception) {
+                        Utils.debugLog("Error updating 'AllTransCacheClear' when disabling cache for ${context.packageName}: ${e.message}") // LOG EXISTENTE
+                    }
+
                 } finally {
                     if (Alltrans.cacheAccess.availablePermits() == 0) {
                         Alltrans.cacheAccess.release()
@@ -682,53 +711,89 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
         }
 
         /**
-         * Limpa o cache se necessário com base no tempo
+         * Limpa o cache se um pedido de limpeza local foi feito para este app e é mais recente
+         * que a última limpeza efetiva.
+         * @param context Contexto do app hookado.
+         * @param localClearRequestTimestamp O timestamp de quando uma limpeza local foi solicitada para este app.
+         *                                  Vem de PreferenceList.CachingTime, que é o valor de "ClearCacheTime" da pref local.
+         *                                  Se for 0L, nenhum pedido de limpeza local ativo.
          */
-        private fun clearCacheIfNeeded(context: Context?, cachingTime: Long) {
-            if (cachingTime <= 0L || context == null) return
+        private fun clearCacheIfNeeded(context: Context?, localClearRequestTimestamp: Long) {
+            Utils.debugLog("clearCacheIfNeeded for ${context?.packageName}: localClearRequestTimestamp = $localClearRequestTimestamp") // NOVO LOG
+
+            if (context == null) {
+                Utils.debugLog("clearCacheIfNeeded: Context is null, cannot proceed. Bailing out.") // Ajuste no log
+                return
+            }
 
             Alltrans.cacheAccess.acquireUninterruptibly()
-            var lastClearTime: Long = 0
+            var lastActualGlobalClearTime: Long = 0L // Timestamp da última vez que o cache foi EFETIVAMENTE limpo (para qualquer app)
+
             var fis: FileInputStream? = null
             var ois: ObjectInputStream? = null
-
             try {
-                fis = context.openFileInput("AllTransCacheClear")
+                // Lê o timestamp da última vez que o cache foi efetivamente limpo
+                fis = context.openFileInput("AllTransCacheClear") // Este arquivo guarda o timestamp da última limpeza real
                 ois = ObjectInputStream(fis)
-                lastClearTime = ois.readObject() as Long
-            } catch (ignored: Throwable) {
-                // Se falhar ao ler, assume que nunca limpou antes
+                lastActualGlobalClearTime = ois.readObject() as Long
+                Utils.debugLog("Read lastActualGlobalClearTime: $lastActualGlobalClearTime")
+            } catch (e: FileNotFoundException) {
+                Utils.debugLog("'AllTransCacheClear' file not found. Assuming cache never cleared (lastActualGlobalClearTime = 0L).")
+                lastActualGlobalClearTime = 0L
+            } catch (e: Throwable) {
+                Utils.debugLog("Error reading 'AllTransCacheClear': ${e.message}. Assuming lastActualGlobalClearTime = 0L.")
+                lastActualGlobalClearTime = 0L
             } finally {
                 try { ois?.close() } catch (ignored: IOException) {}
                 try { fis?.close() } catch (ignored: IOException) {}
             }
 
-            val currentTime = System.currentTimeMillis()
-            val timeSinceLastClear = currentTime - lastClearTime
-
-            if (lastClearTime == 0L || timeSinceLastClear > cachingTime) {
-                Utils.debugLog("Time since last cache clear: ${timeSinceLastClear}ms, clearing cache...")
+            // Se um pedido de limpeza local foi feito (timestamp > 0L) E
+            // esse pedido é mais recente que a última vez que o cache foi efetivamente limpo.
+            if (localClearRequestTimestamp > 0L && localClearRequestTimestamp > lastActualGlobalClearTime) {
+                Utils.debugLog(
+                    "Local clear request for this app (at $localClearRequestTimestamp) is newer " +
+                            "than last actual global clear (at $lastActualGlobalClearTime). Clearing cache now for ${context.packageName}..."
+                )
                 var fos: FileOutputStream? = null
                 var oos: ObjectOutputStream? = null
 
                 try {
-                    // Atualizar o tempo da última limpeza
+                    // 1. Limpar o arquivo de cache do disco e o objeto cache em memória
+                    val cacheFile = File(context.filesDir, "AllTransCache")
+                    if (cacheFile.exists()) {
+                        if (cacheFile.delete()) {
+                            Utils.debugLog("Disk cache file 'AllTransCache' deleted for ${context.packageName}.")
+                        } else {
+                            Utils.debugLog("Failed to delete disk cache file 'AllTransCache' for ${context.packageName}.")
+                        }
+                    } else {
+                        Utils.debugLog("Disk cache file 'AllTransCache' not found for ${context.packageName}, no need to delete.")
+                    }
+
+                    Alltrans.cache?.clear() // Limpa o cache em memória
+                    Utils.debugLog("In-memory cache cleared successfully due to local request for ${context.packageName}.")
+
+                    // 2. ATUALIZAR o tempo da ÚLTIMA LIMPEZA EFETIVA para o timestamp do request atual
+                    // Isso marca que a limpeza solicitada foi realizada.
                     fos = context.openFileOutput("AllTransCacheClear", Context.MODE_PRIVATE)
                     oos = ObjectOutputStream(fos)
-                    oos.writeObject(currentTime)
+                    oos.writeObject(localClearRequestTimestamp) // Salva o timestamp do request como o novo "last actual clear time"
+                    Utils.debugLog("Updated 'AllTransCacheClear' to $localClearRequestTimestamp after local clear.")
 
-                    // Limpar o arquivo de cache e o objeto cache em memória
-                    context.deleteFile("AllTransCache")
-                    Alltrans.cache?.clear()
-                    Utils.debugLog("Cache cleared successfully.")
                 } catch (e: Throwable) {
-                    Log.e("AllTrans", "Error clearing cache", e)
+                    Log.e("AllTrans", "Error during cache clearing process for ${context.packageName} due to local request", e)
                 } finally {
                     try { oos?.close() } catch (ignored: IOException) {}
                     try { fos?.close() } catch (ignored: IOException) {}
                 }
-            } else {
-                Utils.debugLog("No need to clear cache. Time since last clear: ${timeSinceLastClear}ms")
+            } else if (localClearRequestTimestamp > 0L) {
+                Utils.debugLog(
+                    "No need to clear cache for ${context.packageName}. Local request timestamp ($localClearRequestTimestamp) " +
+                            "is not newer than last actual global clear ($lastActualGlobalClearTime)."
+                )
+            } else { // Se localClearRequestTimestamp é 0L (nenhum request local pendente)
+                Utils.debugLog("No pending local clear request for ${context.packageName} (timestamp is 0L).")
             }
 
             if (Alltrans.cacheAccess.availablePermits() == 0) {

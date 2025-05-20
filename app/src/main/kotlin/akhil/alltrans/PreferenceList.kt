@@ -47,18 +47,17 @@ internal object PreferenceList {
         LocalEnabled = getValue(gPref, packageName, false) as Boolean
         Debug = getValue(gPref, "Debug", false) as Boolean
 
-        // Carregar o timestamp de limpeza do cache (sempre local)
-        CachingTime = 0L
-        val clearCacheTimeObj = getValue(lPref, "ClearCacheTime", "0")
-        if (clearCacheTimeObj is String) {
-            try {
-                CachingTime = clearCacheTimeObj.toLong()
-            } catch (e: NumberFormatException) {
-                Utils.debugLog("Error parsing ClearCacheTime: " + clearCacheTimeObj)
-                CachingTime = 0L
-            }
-        } else if (clearCacheTimeObj is Long) {
-            CachingTime = clearCacheTimeObj
+// Carregar o timestamp de limpeza do cache (sempre local)
+// CachingTime aqui representa o localClearRequestTimestamp, ou seja,
+// o momento em que o usuário clicou no botão "Limpar Cache" para este app.
+        val clearCacheTimeStr = getValue(lPref, "ClearCacheTime", "0") as String? // Default string "0"
+        CachingTime = try {
+            // Garante que a string não seja nula ou vazia antes de tentar converter para Long.
+            // Se for nula, vazia, ou não for um número, usa 0L.
+            clearCacheTimeStr?.takeIf { it.isNotBlank() }?.toLong() ?: 0L
+        } catch (e: NumberFormatException) {
+            Utils.debugLog("Error parsing ClearCacheTime string: '$clearCacheTimeStr' for $packageName")
+            0L // Default para 0L se a conversão falhar
         }
 
         // Verificar se devemos usar configurações locais ou globais
@@ -196,9 +195,23 @@ internal object PreferenceList {
         }
 
         // Log de informações para depuração
-        val localSettingsEnabledFlag = getValue(lPref, "LocalEnabled", false) as Boolean
-        Utils.debugLog("Local settings enabled flag: $localSettingsEnabledFlag")
-        Utils.debugLog("Override global settings: $useLocalSettings")
+        val localSettingsEnabledFlag = getValue(lPref, "LocalEnabled", false) as Boolean // Este é o switch "Traduzir este app"
+        val localCacheSwitchValue = getValue(lPref, "Cache", null) // Lê o valor bruto do switch local "Cache"
+        val globalCacheValue = getValue(gPref, "Cache", null) // Lê o valor bruto do switch global "Cache"
+
+        Utils.debugLog("---- Prefs loaded for $packageName ----")
+        Utils.debugLog("Global Prefs state (gPref): $globalPref")
+        Utils.debugLog("Local Prefs state (lPref): $localPref")
+        Utils.debugLog("Override Global Settings (useLocalSettings): $useLocalSettings")
+        Utils.debugLog("Translate This App (localSettingsEnabledFlag via gPref.$packageName): $LocalEnabled") // Correção: LocalEnabled é o antigo nome, deve ser gPref[packageName]
+        Utils.debugLog("Translate This App (local 'LocalEnabled' switch): $localSettingsEnabledFlag") // O que o switch local realmente diz
+
+        Utils.debugLog("Global 'Cache' switch value (from gPref): $globalCacheValue")
+        Utils.debugLog("Local 'Cache' switch value (from lPref): $localCacheSwitchValue")
+        Utils.debugLog("Final Calculated 'PreferenceList.Caching': ${PreferenceList.Caching}")
+        Utils.debugLog("Final Calculated 'PreferenceList.CachingTime' (localClearRequestTimestamp): ${PreferenceList.CachingTime}")
+
         Utils.debugLog("Active settings - Provider: $TranslatorProvider, From: $TranslateFromLanguage, To: $TranslateToLanguage")
+        Utils.debugLog("---- End Prefs for $packageName ----")
     }
 }
