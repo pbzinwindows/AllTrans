@@ -141,12 +141,21 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
     }
 
     private fun downloadModel(translateLanguageSelected: String, isFromLanguage: Boolean) {
-        val translatorProvider = globalSettings?.getString("TranslatorProvider", "g") ?: "g"
+        // CORREÇÃO: Obtém o provedor local em vez do global
+        val isOverrideEnabled = preferenceManager.sharedPreferences?.getBoolean("OverRide", false) ?: false
+        val localProvider = if (isOverrideEnabled) {
+            preferenceManager.sharedPreferences?.getString("TranslatorProvider",
+                globalSettings?.getString("TranslatorProvider", "g") ?: "g") ?: "g"
+        } else {
+            globalSettings?.getString("TranslatorProvider", "g") ?: "g"
+        }
 
-        if (translatorProvider != "g") {
-            Utils.debugLog("LocalPref: Skipping download, global provider is not Google ($translatorProvider)")
+        // Verifica se o provedor atual (local ou global) é Google
+        if (localProvider != "g") {
+            Utils.debugLog("LocalPref: Skipping download, current provider is not Google ($localProvider)")
             return
         }
+
         if (translateLanguageSelected.isEmpty() || translateLanguageSelected == "auto") {
             Log.d("AllTrans", "LocalPref: Skipping model download for invalid/auto language: $translateLanguageSelected")
             return
@@ -254,11 +263,6 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
 
         enableLocalPrefs(overrideEnabled)
 
-        val translatorProvider = globalSettings?.getString("TranslatorProvider", "g") ?: "g"
-        handleProviderChange(translatorProvider)
-        sortListPreferenceByEntries("TranslateFromLanguage")
-        sortListPreferenceByEntries("TranslateToLanguage")
-
         // Configuração do provedor de tradução local
         findPreference<ListPreference>("TranslatorProvider")?.apply {
             setOnPreferenceChangeListener { preference, newValue ->
@@ -280,12 +284,13 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
                 true
             }
 
-            // Inicialização do valor correto
+            // Inicialização do valor correto - usando o provedor local correto
             val localProvider = preferenceManager.sharedPreferences?.getString(
                 "TranslatorProvider",
                 globalSettings?.getString("TranslatorProvider", "g") ?: "g"
-            )
-            handleProviderChange(localProvider!!)
+            ) ?: "g"
+
+            handleProviderChange(localProvider)
         }
 
         // Configuração do toggle para uso de assinatura personalizada
@@ -305,13 +310,45 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
 
         findPreference<ListPreference?>("TranslateFromLanguage")?.setOnPreferenceChangeListener { _, newValue ->
             val lang = newValue as String?
-            if (lang != null) downloadModel(lang, true)
+            if (lang != null) {
+                // CORREÇÃO: Verifica o provedor local atual, não o global
+                val isOverrideEnabled = preferenceManager.sharedPreferences?.getBoolean("OverRide", false) ?: false
+                val currentProviderValue = if (isOverrideEnabled) {
+                    preferenceManager.sharedPreferences?.getString("TranslatorProvider",
+                        globalSettings?.getString("TranslatorProvider", "g") ?: "g") ?: "g"
+                } else {
+                    globalSettings?.getString("TranslatorProvider", "g") ?: "g"
+                }
+
+                Utils.debugLog("TranslateFrom listener triggered. Lang: $lang, Provider (local): $currentProviderValue")
+                if ("g" == currentProviderValue) {
+                    downloadModel(lang, true)
+                } else {
+                    Utils.debugLog("Skipping model download - provider is: $currentProviderValue")
+                }
+            }
             true
         }
 
         findPreference<ListPreference?>("TranslateToLanguage")?.setOnPreferenceChangeListener { _, newValue ->
             val lang = newValue as String?
-            if (lang != null) downloadModel(lang, false)
+            if (lang != null) {
+                // CORREÇÃO: Verifica o provedor local atual, não o global
+                val isOverrideEnabled = preferenceManager.sharedPreferences?.getBoolean("OverRide", false) ?: false
+                val currentProviderValue = if (isOverrideEnabled) {
+                    preferenceManager.sharedPreferences?.getString("TranslatorProvider",
+                        globalSettings?.getString("TranslatorProvider", "g") ?: "g") ?: "g"
+                } else {
+                    globalSettings?.getString("TranslatorProvider", "g") ?: "g"
+                }
+
+                Utils.debugLog("TranslateTo listener triggered. Lang: $lang, Provider (local): $currentProviderValue")
+                if ("g" == currentProviderValue) {
+                    downloadModel(lang, false)
+                } else {
+                    Utils.debugLog("Skipping model download - provider is: $currentProviderValue")
+                }
+            }
             true
         }
 
