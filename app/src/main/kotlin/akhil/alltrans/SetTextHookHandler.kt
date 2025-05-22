@@ -21,6 +21,8 @@ import java.nio.CharBuffer
 import java.util.regex.Pattern
 
 class SetTextHookHandler : XC_MethodHook() {
+    private val TAG = "AllTrans:SetTextHook" // Added for consistent logging
+
     // Função auxiliar para modificar o argumento no param
     private fun modifyArgument(param: MethodHookParam, newText: CharSequence?) {
         if (param.args.size > 0 && param.args[0] != null && newText != null) {
@@ -52,11 +54,11 @@ class SetTextHookHandler : XC_MethodHook() {
                     textToSet = textToSet.toString()
                 }
                 param.args[0] = textToSet
-                Utils.debugLog("Hook argument modified directly with text: [" + textToSet + "]")
+                Utils.debugLog("$TAG: Hook argument modified directly with text: [" + textToSet + "]")
             } catch (e: Exception) {
                 Log.e(
                     "AllTrans",
-                    "Error modifying argument type " + argType.getName() + " with text [" + newText + "]",
+                    "$TAG: Error modifying argument type " + argType.getName() + " with text [" + newText + "]",
                     e
                 )
                 try {
@@ -88,149 +90,127 @@ class SetTextHookHandler : XC_MethodHook() {
             try {
                 val editable = XposedHelpers.callMethod(textView, "getDefaultEditable") as Boolean
                 if (editable && param.method.getName() != "setHint") {
-                    Utils.debugLog("Skipping translation for editable TextView: [" + stringArgs + "]")
+                    Utils.debugLog("$TAG: Skipping translation for editable TextView: [" + stringArgs + "]")
                     if (PreferenceList.Scroll) configureScroll(textView)
                     return
                 }
                 if (!editable && PreferenceList.Scroll) configureScroll(textView)
             } catch (e: Throwable) {
-                Log.w("AllTrans", "Error checking editable/scroll: " + Log.getStackTraceString(e))
+                Log.w("AllTrans", "$TAG: Error checking editable/scroll: " + Log.getStackTraceString(e))
             }
         } else {
             Log.w(
                 "AllTrans",
-                "Hooked object is not a TextView: " + param.thisObject.javaClass.getName()
+                "$TAG: Hooked object is not a TextView: " + param.thisObject.javaClass.getName()
             )
             return  // Só traduzir TextViews
         }
 
-        // --- INÍCIO DA VERIFICAÇÃO DE PENDÊNCIA ---
         val textViewHashCode = textView.hashCode()
-        if (Alltrans.Companion.pendingTextViewTranslations.contains(textViewHashCode)) {
-            Utils.debugLog("Skipping translation request for [" + stringArgs + "], already pending for TextView (" + textViewHashCode + ")")
-            // Não retorna, apenas evita nova requisição. O setText original prossegue.
+        // Check if already pending (even before cache check, as pending implies it's being fetched)
+        if (Alltrans.pendingTextViewTranslations.contains(textViewHashCode)) {
+            Utils.debugLog("$TAG: Skipping translation for [" + stringArgs + "], already pending for TextView ($textViewHashCode)")
+            return // Let original setText proceed, new text will be set by pending callback if different
         }
 
-
-        // --- FIM DA VERIFICAÇÃO DE PENDÊNCIA ---
-
-
-        // Otimização: Verificar se já está traduzido
-        var alreadyTranslated = false
+        // Otimização: Verificar se já está traduzido (e is the same as current text)
+        var alreadyTranslatedAndSame = false
         if (PreferenceList.Caching) {
-            Alltrans.Companion.cacheAccess.acquireUninterruptibly()
+            Alltrans.cacheAccess.acquireUninterruptibly()
             try {
-                val cacheRef = Alltrans.Companion.cache
-                if (cacheRef != null &&  // Verificar se cache não é nulo
-                    cacheRef.containsKey(stringArgs) &&
-                    stringArgs == cacheRef[stringArgs]
-                ) {
-                    Utils.debugLog("Skipping processing, text already appears translated: [" + stringArgs + "]")
-                    alreadyTranslated = true
+                val cacheRef = Alltrans.cache
+                if (cacheRef != null && cacheRef.containsKey(stringArgs) && stringArgs == cacheRef[stringArgs]) {
+                    Utils.debugLog("$TAG: Skipping processing, text already appears translated and is identical: [" + stringArgs + "]")
+                    alreadyTranslatedAndSame = true
                 }
             } finally {
-                if (Alltrans.Companion.cacheAccess.availablePermits() == 0) {
-                    Alltrans.Companion.cacheAccess.release()
+                if (Alltrans.cacheAccess.availablePermits() == 0) {
+                    Alltrans.cacheAccess.release()
                 }
             }
         }
-        if (alreadyTranslated) {
-            return
+        if (alreadyTranslatedAndSame) {
+            return // Let original setText proceed
         }
 
         // Pular Numéricos, URLs e Acrônimos
-        if (SetTextHookHandler.Companion.NUMERIC_PATTERN.matcher(stringArgs).matches()) {
-            Utils.debugLog("Skipping translation for numeric string: [" + stringArgs + "]")
+        if (NUMERIC_PATTERN.matcher(stringArgs).matches()) {
+            Utils.debugLog("$TAG: Skipping translation for numeric string: [" + stringArgs + "]")
             return
         }
-        if (stringArgs.length > 3 && SetTextHookHandler.Companion.URL_LIKE_PATTERN.matcher(
-                stringArgs
-            ).matches() && !stringArgs.contains(" ")
-        ) {
-            Utils.debugLog("Skipping translation for URL-like string: [" + stringArgs + "]")
+        if (stringArgs.length > 3 && URL_LIKE_PATTERN.matcher(stringArgs).matches() && !stringArgs.contains(" ")) {
+            Utils.debugLog("$TAG: Skipping translation for URL-like string: [" + stringArgs + "]")
             return
         }
-        if (stringArgs.length < 5 && SetTextHookHandler.Companion.ACRONYM_LIKE_PATTERN.matcher(
-                stringArgs
-            ).matches()
-        ) {
-            Utils.debugLog("Skipping translation for likely acronym/code: [" + stringArgs + "]")
+        if (stringArgs.length < 5 && ACRONYM_LIKE_PATTERN.matcher(stringArgs).matches()) {
+            Utils.debugLog("$TAG: Skipping translation for likely acronym/code: [" + stringArgs + "]")
             return
         }
 
-        // --- Processar Tradução ---
-        Utils.debugLog("Potential translation target: [" + stringArgs + "] for TextView (" + textViewHashCode + ")")
+        Utils.debugLog("$TAG: Potential translation target: [" + stringArgs + "] for TextView (" + textViewHashCode + ")")
 
         var cachedTranslation: String? = null
         var translationRequested = false
 
-        Alltrans.Companion.cacheAccess.acquireUninterruptibly()
+        Alltrans.cacheAccess.acquireUninterruptibly()
         try {
-            val cacheRef = Alltrans.Companion.cache
+            val cacheRef = Alltrans.cache
             if (PreferenceList.Caching && cacheRef != null && cacheRef.containsKey(stringArgs)) {
                 cachedTranslation = cacheRef[stringArgs]
                 if (cachedTranslation != null && cachedTranslation != stringArgs) {
-                    Utils.debugLog("Applying cached translation directly to args: [" + stringArgs + "] -> [" + cachedTranslation + "]")
-                    // Modifica args e deixa original prosseguir
+                    Utils.debugLog("$TAG: Applying cached translation directly to args: [" + stringArgs + "] -> [" + cachedTranslation + "]")
                     modifyArgument(param, cachedTranslation)
                 } else {
-                    Utils.debugLog("Invalid/same translation in cache for: [" + stringArgs + "], proceeding with original.")
-                    cachedTranslation = null // Não usar cache
+                    Utils.debugLog("$TAG: Invalid/same translation in cache for: [" + stringArgs + "], proceeding with original or fresh translation.")
+                    cachedTranslation = null
                 }
             }
-            // Se NÃO encontrou tradução válida no cache E NÃO está pendente
-            // --- MODIFICADO PARA INCLUIR VERIFICAÇÃO DE PENDÊNCIA ---
-            if (cachedTranslation == null && !Alltrans.Companion.pendingTextViewTranslations.contains(
-                    textViewHashCode
-                )
-            ) {
-                // --- FIM DA MODIFICAÇÃO ---
-                Utils.debugLog("String not cached or invalid, requesting translation for: [" + stringArgs + "]")
-                translationRequested = true // Marcar que a tradução foi requisitada
 
-                // --- INÍCIO DA ADIÇÃO AO SET DE PENDENTES ---
-                // Adiciona ao set ANTES de iniciar a tarefa assíncrona
-                Alltrans.Companion.pendingTextViewTranslations.add(textViewHashCode)
-                Utils.debugLog("Added TextView (" + textViewHashCode + ") to pending set.")
+            if (cachedTranslation == null && !Alltrans.pendingTextViewTranslations.contains(textViewHashCode)) {
+                Utils.debugLog("$TAG: String not cached or invalid/same in cache. Requesting fresh translation for: [" + stringArgs + "] for TextView (" + textViewHashCode + ")")
+                translationRequested = true
 
-                // --- FIM DA ADIÇÃO AO SET DE PENDENTES ---
-                val getTranslate = GetTranslate()
-                getTranslate.stringToBeTrans = stringArgs
-                getTranslate.userData = textView // Passar o TextView
-                getTranslate.canCallOriginal = false // Callback não usará OriginalCallable
+                if (PreferenceList.TranslatorProvider == "m" && PreferenceList.CurrentAppMicrosoftBatchEnabled) {
+                    Utils.debugLog("$TAG: Using BatchTranslationManager for Microsoft provider (batching enabled) for TextView: $textViewHashCode, Text: \"${stringArgs.take(50)}...\"")
+                    Alltrans.batchManager.addString(
+                        text = stringArgs,
+                        userData = textView,
+                        originalCallable = null,
+                        canCallOriginal = false
+                    )
+                    // pendingTextViewTranslations.add is handled by BatchTranslationManager for this case
+                } else {
+                    // Direct translation for non-Microsoft providers OR if MS batching is disabled for this app
+                    val reason = if (PreferenceList.TranslatorProvider == "m") "(MS batching disabled)" else "(non-MS provider)"
+                    Utils.debugLog("$TAG: Using direct translation $reason for TextView: $textViewHashCode, Text: \"${stringArgs.take(50)}...\"")
 
-                val getTranslateToken = GetTranslateToken()
-                getTranslateToken.getTranslate = getTranslate
-                getTranslateToken.doAll()
+                    Alltrans.pendingTextViewTranslations.add(textViewHashCode)
+                    Utils.debugLog("$TAG: Added TextView ($textViewHashCode) to pending set for direct translation.")
+
+                    val getTranslate = GetTranslate()
+                    getTranslate.stringToBeTrans = stringArgs
+                    getTranslate.userData = textView
+                    getTranslate.canCallOriginal = false
+
+                    val getTranslateToken = GetTranslateToken()
+                    getTranslateToken.getTranslate = getTranslate
+                    getTranslateToken.doAll()
+                }
             }
         } finally {
-            if (Alltrans.Companion.cacheAccess.availablePermits() == 0) {
-                Alltrans.Companion.cacheAccess.release()
+            if (Alltrans.cacheAccess.availablePermits() == 0) {
+                Alltrans.cacheAccess.release()
             }
         }
 
-        // --- Lógica de Execução do Método Original ---
         if (translationRequested) {
-            // Se uma tradução foi requisitada (cache miss):
-            // 1. Deixar o método original executar AGORA com o TEXTO ORIGINAL.
-            // 2. O callback (GetTranslate.onResponse) irá chamar textView.setText() DEPOIS.
-            Utils.debugLog("Proceeding with original text for [" + stringArgs + "] while waiting for callback.")
-            // Não precisamos fazer nada aqui, apenas NÃO chamar param.setResult(null).
-            // O fluxo normal do Xposed chamará o método original.
-        } else if (cachedTranslation != null) { // Verifica se veio do cache
-            // Se uma tradução VEIO DO CACHE (cachedTranslation != null):
-            // 1. Os argumentos já foram modificados por modifyArgument().
-            // 2. Deixar o método original executar AGORA com os argumentos MODIFICADOS.
-            Utils.debugLog("Proceeding with cached translation for [" + stringArgs + "].")
-            // Também não fazemos nada aqui, Xposed chama o original.
+            Utils.debugLog("$TAG: Proceeding with original text for [" + stringArgs + "] while waiting for callback.")
+        } else if (cachedTranslation != null) {
+            Utils.debugLog("$TAG: Proceeding with cached (modified) translation for [" + stringArgs + "].")
         }
-        // Se a string foi pulada por ser numérica/URL/etc, ou "already translated", ou "pending"
-        // o método também já retornou antes ou simplesmente não iniciou nova tradução,
-        // deixando o original executar.
     }
 
 
-    // Função auxiliar para configurar o scroll (sem alterações)
     @SuppressLint("ClickableViewAccessibility")
     private fun configureScroll(textView: TextView) {
         try {
@@ -245,7 +225,6 @@ class SetTextHookHandler : XC_MethodHook() {
                     override fun onTouch(v: View, event: MotionEvent?): Boolean {
                         v.getParent().requestDisallowInterceptTouchEvent(true)
                         val method = (v as TextView).getMovementMethod()
-                        // Adicionado check para evitar crash se o texto não for Spannable
                         val text = v.getText()
                         if (method != null && v.isFocused() && text is Spannable) {
                             return method.onTouchEvent(v, text, event)
@@ -255,7 +234,7 @@ class SetTextHookHandler : XC_MethodHook() {
                 })
             }
         } catch (e: Throwable) {
-            Log.w("AllTrans", "Failed to configure scrolling", e)
+            Log.w("AllTrans", "$TAG: Failed to configure scrolling", e)
         }
     }
 
@@ -263,10 +242,7 @@ class SetTextHookHandler : XC_MethodHook() {
         private val NUMERIC_PATTERN: Pattern = Pattern.compile("^[+-]?\\d+(\\.\\d+)?$")
         private val URL_LIKE_PATTERN: Pattern =
             Pattern.compile("^(http|https)://.*|[^\\s]+\\.[^\\s]+$")
-
-        // Padrão para verificar se a string é apenas maiúsculas/números/símbolos comuns e curta
         private val ACRONYM_LIKE_PATTERN: Pattern = Pattern.compile("^[A-Z0-9_\\-:]+$")
-
 
         fun isNotWhiteSpace(abc: String?): Boolean {
             return !(abc == null || "" == abc) && !abc.matches("^\\s*$".toRegex())

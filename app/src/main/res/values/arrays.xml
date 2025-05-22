@@ -506,4 +506,18 @@
         <item>@string/Chinese_yandex</item>
     </string-array>
 
+    <!-- Entries for Microsoft Batch Translation Mode ListPreference -->
+    <string-array name="ms_batch_mode_entries">
+        <item>Use global setting</item>
+        <item>Force Enable</item>
+        <item>Force Disable</item>
+    </string-array>
+
+    <!-- EntryValues for Microsoft Batch Translation Mode ListPreference -->
+    <string-array name="ms_batch_mode_entry_values">
+        <item>global</item>
+        <item>enabled</item>
+        <item>disabled</item>
+    </string-array>
+
 </resources>

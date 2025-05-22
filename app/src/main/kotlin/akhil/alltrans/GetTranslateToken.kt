@@ -209,9 +209,38 @@ internal class GetTranslateToken {
             return
         }
 
-        val textToTranslate = callback.stringToBeTrans ?: run {
-            Log.e(TAG, "String to be translated is null. Aborting.")
-            return
+        // Check if we're in batch mode - batch is ONLY supported for Microsoft
+        val isBatchMode = callback.stringsToBeTrans?.isNotEmpty() == true
+
+        // Clear out batch data if we're not using Microsoft
+        if (isBatchMode && PreferenceList.TranslatorProvider != "m") {
+            Log.w(TAG, "Batch translation requested but provider is ${PreferenceList.TranslatorProvider}, not Microsoft. Converting to single item.")
+
+            // Take just the first item if there are any
+            if (callback.stringsToBeTrans?.isNotEmpty() == true && callback.callbackDataList?.isNotEmpty() == true) {
+                callback.stringToBeTrans = callback.stringsToBeTrans!![0]
+                val callbackInfo = callback.callbackDataList!![0]
+                callback.userData = callbackInfo.userData
+                callback.originalCallable = callbackInfo.originalCallable
+                callback.canCallOriginal = callbackInfo.canCallOriginal
+            }
+
+            // Clear the batch lists
+            callback.stringsToBeTrans = null
+            callback.callbackDataList = null
+        }
+
+        // Re-check batch mode after potential conversion to single item
+        val isActuallyBatchMode = callback.stringsToBeTrans?.isNotEmpty() == true && PreferenceList.TranslatorProvider == "m"
+
+        val textToTranslate = if (!isActuallyBatchMode) {
+            callback.stringToBeTrans ?: run {
+                Log.e(TAG, "String to be translated is null. Aborting.")
+                return
+            }
+        } else {
+            // In batch mode, we don't need a single text to translate as we'll process the list
+            "BATCH_MODE" // This is just a placeholder
         }
 
         // Verificamos apenas se o contexto existe, sem criar variável não utilizada
@@ -230,10 +259,15 @@ internal class GetTranslateToken {
             val fromLang = PreferenceList.TranslateFromLanguage
             val toLang = PreferenceList.TranslateToLanguage
 
-            Utils.debugLog("$TAG: doInBackground - Provider: $provider, Text: [$textToTranslate]")
+            if (isActuallyBatchMode) {
+                Utils.debugLog("$TAG: doInBackground - Provider: $provider, Batch mode with ${callback.stringsToBeTrans?.size} texts")
+            } else {
+                Utils.debugLog("$TAG: doInBackground - Provider: $provider, Single text mode: [$textToTranslate]")
+            }
 
             when (provider) {
                 "g" -> {
+                    // Google provider doesn't support batch mode, always use single mode
                     Utils.debugLog("$TAG: Dispatching Google Provider query to background executor for: [$textToTranslate]")
                     googleQueryExecutor.submit {
                         var result: String? = textToTranslate
@@ -278,6 +312,7 @@ internal class GetTranslateToken {
                     }
                 }
                 "y" -> {
+                    // Yandex doesn't support batch mode, ensure we're using single mode
                     val httpClient = httpsClient ?: run {
                         handleTranslationFailure(
                             "OkHttpClient is null for Yandex",
@@ -337,13 +372,31 @@ internal class GetTranslateToken {
                             if (fromLangSafe != "auto") "&from=${URLEncoder.encode(fromLangSafe, "UTF-8")}" else ""
 
                     val fullURL = baseURL + languageURL
-                    val jsonArray = JSONArray()
-                    val jsonObject = JSONObject()
-                    jsonObject.put("Text", textToTranslate)
-                    jsonArray.put(jsonObject)
-                    val requestBodyJson = jsonArray.toString()
-                    val body = requestBodyJson.toRequestBody(JSON_MEDIA_TYPE)
+                    val requestBodyJson: String
 
+                    // Only Microsoft supports true batch mode
+                    if (isActuallyBatchMode && PreferenceList.CurrentAppMicrosoftBatchEnabled) {
+                        // Batch Microsoft Request
+                        val batchStrings = callback.stringsToBeTrans ?: emptyList()
+                        Utils.debugLog("$TAG: Preparing batch Microsoft request for ${batchStrings.size} strings.")
+                        val jsonArray = JSONArray()
+                        batchStrings.forEach { text ->
+                            val jsonObject = JSONObject()
+                            jsonObject.put("Text", text)
+                            jsonArray.put(jsonObject)
+                        }
+                        requestBodyJson = jsonArray.toString()
+                    } else {
+                        // Single Microsoft Request
+                        Utils.debugLog("$TAG: Preparing single Microsoft request for: '$textToTranslate'")
+                        val jsonArray = JSONArray()
+                        val jsonObject = JSONObject()
+                        jsonObject.put("Text", textToTranslate) // textToTranslate is already checked for nullity
+                        jsonArray.put(jsonObject)
+                        requestBodyJson = jsonArray.toString()
+                    }
+
+                    val body = requestBodyJson.toRequestBody(JSON_MEDIA_TYPE)
                     val requestBuilder = Request.Builder().url(fullURL).post(body)
                         .addHeader("Ocp-Apim-Subscription-Key", key)
                         .addHeader("Content-Type", "application/json; charset=UTF-8")
@@ -361,7 +414,14 @@ internal class GetTranslateToken {
                     val request = requestBuilder.build()
                     Utils.debugLog("Microsoft Request URL: $fullURL")
                     Utils.debugLog("Microsoft Request Body: $requestBodyJson")
-                    Utils.debugLog("Enqueuing Microsoft request for: '$textToTranslate'")
+
+                    // Log different messages based on the mode
+                    val logText = if (isActuallyBatchMode && PreferenceList.CurrentAppMicrosoftBatchEnabled) {
+                        "batch of ${callback.stringsToBeTrans?.size ?: 0} strings"
+                    } else {
+                        "'$textToTranslate'"
+                    }
+                    Utils.debugLog("Enqueuing Microsoft request for: $logText")
                     httpClient.newCall(request).enqueue(callback)
                 }
                 else -> {

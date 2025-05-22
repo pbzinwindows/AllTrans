@@ -563,6 +563,8 @@ class Alltrans : IXposedHookLoadPackage {
                 WeakHashMap<WebView?, VirtWebViewOnLoad?>()
             )
 
+        val batchManager: BatchTranslationManager by lazy { BatchTranslationManager() }
+
         // Método estático auxiliar para inicializar a chave da tag
         @Synchronized
         fun initializeTagKeyIfNeeded() {

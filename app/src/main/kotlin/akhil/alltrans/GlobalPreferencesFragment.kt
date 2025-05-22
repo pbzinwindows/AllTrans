@@ -7,8 +7,10 @@ import android.view.LayoutInflater
 import android.widget.Toast
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
+import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.PreferenceManager
+import androidx.preference.SwitchPreferenceCompat
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
@@ -17,6 +19,8 @@ import java.text.Collator
 import java.util.TreeMap
 
 class GlobalPreferencesFragment : PreferenceFragmentCompat() {
+
+    private var msTranslatorBatchPref: SwitchPreferenceCompat? = null
 
     // --- FUNÇÕES AUXILIARES ---
 
@@ -65,6 +69,8 @@ class GlobalPreferencesFragment : PreferenceFragmentCompat() {
             subscriptionKey.setTitle(getString(R.string.subKey_yandex))
             subscriptionRegion.setTitle(getString(R.string.subRegion_yandex))
             keyRequired = true
+            // Hide batch translation for Yandex
+            msTranslatorBatchPref?.isVisible = false
         } else if ("m" == translatorProviderSelected) {
             translateFromLanguage.setEntries(R.array.languageNames)
             translateFromLanguage.setEntryValues(R.array.languageCodes)
@@ -73,6 +79,8 @@ class GlobalPreferencesFragment : PreferenceFragmentCompat() {
             subscriptionKey.setTitle(getString(R.string.subKey_micro))
             subscriptionRegion.setTitle(getString(R.string.subRegion_micro))
             keyRequired = true
+            // Show batch translation for Microsoft
+            msTranslatorBatchPref?.isVisible = true
         } else {
             translateFromLanguage.setEntries(R.array.languageNamesGoogle)
             translateFromLanguage.setEntryValues(R.array.languageCodesGoogle)
@@ -81,6 +89,8 @@ class GlobalPreferencesFragment : PreferenceFragmentCompat() {
             subscriptionKey.setTitle(getString(R.string.subKey))
             subscriptionRegion.setTitle(getString(R.string.subRegion_title))
             keyRequired = false
+            // Hide batch translation for Google
+            msTranslatorBatchPref?.isVisible = false
         }
 
         subscriptionKey.isEnabled = keyRequired
@@ -240,15 +250,26 @@ class GlobalPreferencesFragment : PreferenceFragmentCompat() {
 
         handleSubProviderChange()
 
+        // Get reference to the batch translation preference
+        msTranslatorBatchPref = findPreference("global_ms_batch_translate_enabled")
+
         val translatorProvider = findPreference<ListPreference?>(KEY_TRANSLATOR_PROVIDER)
 
         if (translatorProvider != null) {
             val currentProvider = translatorProvider.value
+
+            // Initialize the visibility of the batch translation option based on current provider
+            msTranslatorBatchPref?.isVisible = currentProvider == "m"
+
             handleProviderChange(currentProvider)
 
             translatorProvider.setOnPreferenceChangeListener { _, newValue ->
                 val translatorProviderSelected = newValue as String?
                 handleProviderChange(translatorProviderSelected ?: "g")
+
+                // Update the visibility of batch translation option when provider changes
+                msTranslatorBatchPref?.isVisible = translatorProviderSelected == "m"
+
                 true
             }
         } else {

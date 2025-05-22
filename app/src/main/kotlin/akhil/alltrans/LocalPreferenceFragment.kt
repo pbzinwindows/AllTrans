@@ -22,6 +22,7 @@ import java.util.TreeMap
 class LocalPreferenceFragment : PreferenceFragmentCompat() {
     var applicationInfo: ApplicationInfo? = null
     private var globalSettings: SharedPreferences? = null
+    private var msBatchModePreference: ListPreference? = null
 
     private fun handleProviderChange(translatorProviderSelected: String) {
         val translateFromLanguage = findPreference<ListPreference?>("TranslateFromLanguage")
@@ -43,6 +44,9 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
 
         // A visibilidade dos campos de chave/região depende da opção useCustomSubscription
         updateSubscriptionFieldsVisibility(useCustomSubscription.isChecked && isMicrosoft)
+
+        // Set visibility of Microsoft batch mode preference
+        msBatchModePreference?.isVisible = isMicrosoft
 
         if (translatorProviderSelected == "y") {
             translateFromLanguage.setEntries(R.array.languageNamesYandex)
@@ -212,7 +216,8 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
         val keysToToggle = listOf(
             "TranslateFromLanguage", "TranslateToLanguage", "TranslatorProvider", "SetText",
             "SetHint", "LoadURL", "DrawText", "Notif", "Cache", "Scroll", "Delay", "DelayWebView",
-            "UseCustomSubscription", "CustomSubscriptionKey", "CustomSubscriptionRegion"
+            "UseCustomSubscription", "CustomSubscriptionKey", "CustomSubscriptionRegion",
+            "app_ms_batch_translate_mode"
         )
         keysToToggle.forEach { key ->
             findPreference<Preference>(key)?.isEnabled = enable
@@ -237,6 +242,9 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
         val localPrefs = prefManager.sharedPreferences
 
         addPreferencesFromResource(R.xml.perappprefs)
+
+        // Get reference to the batch mode preference
+        msBatchModePreference = findPreference("app_ms_batch_translate_mode")
 
         val isGloballyEnabled = globalSettings?.contains(applicationInfo!!.packageName) ?: false
         val overrideEnabled = localPrefs?.getBoolean("OverRide", false) ?: false
@@ -336,6 +344,9 @@ class LocalPreferenceFragment : PreferenceFragmentCompat() {
         val useCustomSubscription = findPreference<SwitchPreference>("UseCustomSubscription")
         useCustomSubscription?.isVisible = isMicrosoft
         updateSubscriptionFieldsVisibility(useCustom && isMicrosoft)
+
+        // Set initial visibility of Microsoft batch mode preference
+        msBatchModePreference?.isVisible = isMicrosoft
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

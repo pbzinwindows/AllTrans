@@ -10,305 +10,274 @@ import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONException
 import java.io.IOException
+import akhil.alltrans.CallbackInfo // Added for batch processing
 
 class GetTranslate : Callback {
     var stringToBeTrans: String? = null
     var originalCallable: OriginalCallable? = null
     var canCallOriginal: Boolean = false
     var userData: Any? = null
-    private var translatedString: String? = null
+    // New fields for batch translation
+    var stringsToBeTrans: List<String>? = null
+    var callbackDataList: List<CallbackInfo>? = null
+    private var translatedString: String? = null // For single translations
 
     // A assinatura DEVE corresponder exatamente à interface Callback
     override fun onResponse(call: Call, response: Response) {
-        val localOriginalString = stringToBeTrans
-        var textViewHashCode: Int? = null // Variável para guardar o hashcode
-        if (userData is TextView) {
-            textViewHashCode = userData.hashCode() // Pega o hashcode se for TextView
-        }
+        val isBatchMicrosoft = PreferenceList.TranslatorProvider == "m" && stringsToBeTrans?.isNotEmpty() == true && callbackDataList?.isNotEmpty() == true
+        var responseBodyString: String? = null
 
         try {
             if (!response.isSuccessful) {
                 Utils.debugLog("Got response code as : " + response.code)
-                translatedString = localOriginalString
-                try {
-                    val errorBody =
-                        if (response.body != null) response.body!!.string() else "null"
-                    Utils.debugLog("Got error response body as : " + errorBody)
-                } catch (ignored: Exception) {
-                } finally {
-                    if (response.body != null) response.body!!.close()
+                responseBodyString = response.body?.string() ?: "null"
+                Utils.debugLog("Got error response body as : $responseBodyString")
+                // For batch, trigger failure for all; for single, set translatedString to original
+                if (isBatchMicrosoft) {
+                    handleBatchFailure(callbackDataList!!, "HTTP Error: ${response.code}")
+                } else {
+                    translatedString = stringToBeTrans // Fallback to original for single
                 }
-            } else {
-                var result: String? = null
-                try {
-                    if (response.body == null) {
-                        throw IOException("Response body is null")
-                    }
-                    result = response.body!!.string()
-                    Utils.debugLog(
-                        "In Thread " + Thread.currentThread()
-                            .getId() + " In GetTranslate, for: [" + localOriginalString + "] got response as " + result
-                    )
-
-                    if (PreferenceList.TranslatorProvider == "y") {
-                        if (result.contains("<text>")) {
-                            translatedString = result.substring(
-                                result.indexOf("<text>") + 6,
-                                result.lastIndexOf("</text>")
-                            )
-                        } else {
-                            Log.w("AllTrans", "Unexpected Yandex response format: " + result)
-                            translatedString = localOriginalString
-                        }
-                    } else if (PreferenceList.TranslatorProvider == "m") {
-                        try {
-                            translatedString =
-                                JSONArray(result).getJSONObject(0).getJSONArray("translations")
-                                    .getJSONObject(0).getString("text")
-                        } catch (jsonEx: JSONException) { // Captura específica para JSON
-                            Log.e(
-                                "AllTrans",
-                                "Error parsing Microsoft JSON response: " + Log.getStackTraceString(
-                                    jsonEx
-                                ) + "\nResponse body was: " + result
-                            )
-                            translatedString = localOriginalString
-                        }
-                    } else { // Google ou default
-                        translatedString = result
-                    }
-
-                    translatedString = Utils.XMLUnescape(translatedString)
-                } catch (e: Exception) { // Catch mais genérico para outras exceções (IOException, etc)
-                    Log.e(
-                        "AllTrans",
-                        "Error parsing translation response: " + Log.getStackTraceString(e) + "\nResponse body was: " + result
-                    )
-                    translatedString = localOriginalString
-                } finally {
-                    // Fechar o corpo da resposta aqui é redundante se já fechado acima, mas seguro
-                    if (response.body != null) try {
-                        response.body!!.close()
-                    } catch (ignored: Exception) {
-                    }
-                }
-
-                if (translatedString == null || translatedString!!.isEmpty()) {
-                    Utils.debugLog("Translation result is null or empty after parsing, using original.")
-                    translatedString = localOriginalString
-                }
-
-                if (PreferenceList.Caching && translatedString != null && (translatedString != localOriginalString)) {
-                    val finalTranslated = translatedString
-                    Alltrans.Companion.cacheAccess.acquireUninterruptibly()
+            } else { // Successful response
+                responseBodyString = response.body!!.string() // Read once
+                if (isBatchMicrosoft) {
+                    Utils.debugLog("Batch Microsoft response: $responseBodyString")
                     try {
-                        Utils.debugLog("Putting in cache: [" + localOriginalString + "] -> [" + finalTranslated + "]")
-                        val cacheRef = Alltrans.Companion.cache
-                        if (cacheRef != null) {
-                            cacheRef[localOriginalString] = finalTranslated
-                            cacheRef[finalTranslated] = finalTranslated
-                        } else {
-                            Utils.debugLog("Cache object is null, cannot update cache.")
+                        val jsonResponseArray = JSONArray(responseBodyString)
+                        for (i in 0 until jsonResponseArray.length()) {
+                            val item = jsonResponseArray.getJSONObject(i)
+                            val currentItemTranslatedText: String = item.getJSONArray("translations").getJSONObject(0).getString("text").orEmpty()
+                            val callbackInfo = callbackDataList!![i] // Assuming order is maintained
+
+                            val unescapedTranslatedText = Utils.XMLUnescape(currentItemTranslatedText) ?: ""
+                            cacheTranslation(callbackInfo.originalString, unescapedTranslatedText)
+                            triggerSuccessCallback(unescapedTranslatedText, callbackInfo)
                         }
-                    } finally {
-                        if (Alltrans.Companion.cacheAccess.availablePermits() == 0) {
-                            Alltrans.Companion.cacheAccess.release()
-                        }
+                    } catch (e: JSONException) {
+                        Log.e("AllTrans", "Error parsing BATCH Microsoft JSON response: ${Log.getStackTraceString(e)}\nResponse body was: $responseBodyString")
+                        handleBatchFailure(callbackDataList!!, "Batch JSON parsing error")
                     }
-                } else if (translatedString == localOriginalString) {
-                    Utils.debugLog("Skipping cache update for identical translation.")
+                    return // Batch processing ends here, individual callbacks handled by triggerSuccessCallback
+                } else { // Single translation (Microsoft, Yandex, Google)
+                    val localOriginalString = stringToBeTrans
+                    Utils.debugLog("Single translation response for [$localOriginalString]: $responseBodyString")
+                    var singleTranslatedText: String? = localOriginalString
+                    try {
+                        when (PreferenceList.TranslatorProvider) {
+                            "y" -> {
+                                responseBodyString?.let { nonNullResponseBody ->
+                                    singleTranslatedText = if (nonNullResponseBody.contains("<text>")) {
+                                        nonNullResponseBody.substring(nonNullResponseBody.indexOf("<text>") + 6, nonNullResponseBody.lastIndexOf("</text>"))
+                                    } else {
+                                        Log.w("AllTrans", "Unexpected Yandex response format: $nonNullResponseBody")
+                                        localOriginalString
+                                    }
+                                } ?: run {
+                                    Log.w("AllTrans", "Yandex response body was null, falling back to original.")
+                                    singleTranslatedText = localOriginalString
+                                }
+                            }
+                            "m" -> { // Single Microsoft
+                                responseBodyString?.let { nonNullResponseBody ->
+                                    try {
+                                        singleTranslatedText = JSONArray(nonNullResponseBody).getJSONObject(0).getJSONArray("translations").getJSONObject(0).getString("text").orEmpty()
+                                    } catch (jsonEx: JSONException) {
+                                        Log.e("AllTrans", "Error parsing SINGLE Microsoft JSON: ${Log.getStackTraceString(jsonEx)}\nResponse body was: $nonNullResponseBody")
+                                        singleTranslatedText = localOriginalString
+                                    }
+                                } ?: run {
+                                    Log.w("AllTrans", "Microsoft (single) response body was null, falling back to original.")
+                                    singleTranslatedText = localOriginalString
+                                }
+                            }
+                            else -> { // Google or default
+                                singleTranslatedText = responseBodyString // This is safe as singleTranslatedText is String?
+                            }
+                        }
+                        // XMLUnescape should handle null if singleTranslatedText is null
+                        singleTranslatedText = Utils.XMLUnescape(singleTranslatedText.orEmpty())
+                    } catch (e: Exception) {
+                        // This catch block will handle exceptions from XMLUnescape or other unexpected issues
+                        Log.e("AllTrans", "Error processing SINGLE translation response: ${Log.getStackTraceString(e)}\nResponse body might have been: $responseBodyString")
+                        singleTranslatedText = localOriginalString // Fallback
+                    }
+                    translatedString = singleTranslatedText ?: localOriginalString // Ensure translatedString is not null
+                    if (translatedString.isNullOrEmpty() && !localOriginalString.isNullOrEmpty()) { // If translation is empty but original wasn't, prefer original
+                        Utils.debugLog("Translated string is null or empty, but original was not. Using original: [$localOriginalString]")
+                        translatedString = localOriginalString
+                    } else if (translatedString.isNullOrEmpty()) { // Both translated and original are null/empty
+                        Utils.debugLog("Translated string is null or empty, and original is also null/empty. Setting to empty string.")
+                        translatedString = "" // Fallback to empty string if both are null/empty
+                    }
+
+                    // Null check before calling cacheTranslation (from previous fix)
+                    if (localOriginalString != null && translatedString != null) {
+                        cacheTranslation(localOriginalString, translatedString)
+                    } else {
+                        Utils.debugLog("Skipping cacheTranslation due to null values: original=[$localOriginalString], translated=[$translatedString]")
+                    }
+                    // For single translations, the existing callback logic at the end of the function will be used.
                 }
             }
         } catch (e: Throwable) {
-            Log.e(
-                "AllTrans",
-                "Unexpected error processing translation response: " + Log.getStackTraceString(e)
-            )
-            translatedString = localOriginalString
-            if (response.body != null) try {
-                response.body!!.close()
-            } catch (ignored: Exception) {
+            Log.e("AllTrans", "Unexpected error processing translation response: ${Log.getStackTraceString(e)}")
+            if (isBatchMicrosoft) {
+                handleBatchFailure(callbackDataList!!, "Generic error: ${e.message}")
+                return // Batch processing ends here
+            } else {
+                translatedString = stringToBeTrans // Fallback for single
             }
         } finally {
-            // Garante que finalString nunca seja nulo antes do callback
-            // Fixed: Simplified the expression to avoid the redundant null check
-            val finalString: String = translatedString ?: localOriginalString ?: ""
-            Utils.debugLog("Final translation result before callback: [" + finalString + "]")
-
-            // --- Lógica de Callback Atualizada (com remoção do Set) ---
-            if (userData is TextView) {
-                val textView = userData as TextView
-                // Usa o hashcode guardado no início do método
-                val currentTextViewHashCode = textViewHashCode
-                Handler(Looper.getMainLooper()).postDelayed(Runnable {
-                    try {
-                        if (textView != null && finalString != localOriginalString) {
-                            Utils.debugLog("Updating TextView (" + textView.hashCode() + ") with different translated text: [" + finalString + "]")
-                            textView.setText(finalString)
-                        } else if (textView != null) {
-                            Utils.debugLog("Skipping TextView update for (" + textView.hashCode() + "), translated text is same as original: [" + finalString + "]")
-                        } else {
-                            Utils.debugLog("Skipping TextView update, view no longer exists.")
-                        }
-                    } catch (e: Exception) {
-                        Log.e(
-                            "AllTrans",
-                            "Error setting text directly on TextView from callback",
-                            e
-                        )
-                    } finally {
-                        // --- INÍCIO DA REMOÇÃO DO SET ---
-                        if (currentTextViewHashCode != null) {
-                            if (Alltrans.Companion.pendingTextViewTranslations.remove(
-                                    currentTextViewHashCode
-                                )
-                            ) {
-                                Utils.debugLog("Removed TextView (" + currentTextViewHashCode + ") from pending set after onResponse.")
-                            }
-                        }
-                        // --- FIM DA REMOÇÃO DO SET ---
-                    }
-                }, PreferenceList.Delay.toLong())
-            } else if (canCallOriginal && originalCallable != null) {
-                Utils.debugLog("Calling originalCallable.callOriginalMethod for other hook type with text: [" + finalString + "]")
-                val currentNonTextViewHashCode =
-                    if (userData != null) userData!!.hashCode() else null // Guarda hashcode
-                Handler(Looper.getMainLooper()).postDelayed(Runnable {
-                    if (originalCallable != null) {
-                        try {
-                            originalCallable!!.callOriginalMethod(finalString, userData)
-                        } catch (t: Throwable) {
-                            Log.e(
-                                "AllTrans",
-                                "Error executing originalCallable.callOriginalMethod",
-                                t
-                            )
-                        } finally {
-                            // --- INÍCIO DA REMOÇÃO DO SET (OUTROS TIPOS) ---
-                            if (currentNonTextViewHashCode != null) {
-                                if (Alltrans.Companion.pendingTextViewTranslations.remove(
-                                        currentNonTextViewHashCode
-                                    )
-                                ) {
-                                    Utils.debugLog("Removed non-TextView userData (" + currentNonTextViewHashCode + ") from pending set after onResponse callback.")
-                                }
-                            }
-                            // --- FIM DA REMOÇÃO DO SET (OUTROS TIPOS) ---
-                        }
-                    } else {
-                        Log.e(
-                            "AllTrans",
-                            "originalCallable became null before executing callback on main thread."
-                        )
-                        // --- INÍCIO DA REMOÇÃO DO SET (OUTROS TIPOS - FALHA NO CALLBACK) ---
-                        if (currentNonTextViewHashCode != null) {
-                            if (Alltrans.Companion.pendingTextViewTranslations.remove(
-                                    currentNonTextViewHashCode
-                                )
-                            ) {
-                                Utils.debugLog("Removed non-TextView userData (" + currentNonTextViewHashCode + ") from pending set after originalCallable became null.")
-                            }
-                        }
-                        // --- FIM DA REMOÇÃO DO SET (OUTROS TIPOS - FALHA NO CALLBACK) ---
-                    }
-                }, PreferenceList.Delay.toLong())
-            } else {
-                Utils.debugLog("No suitable callback action found for userData type: " + (if (userData != null) userData!!.javaClass.getName() else "null"))
-                // --- INÍCIO DA REMOÇÃO DO SET (SEM CALLBACK) ---
-                if (textViewHashCode != null) { // Usa hashcode guardado
-                    if (Alltrans.Companion.pendingTextViewTranslations.remove(textViewHashCode)) {
-                        Utils.debugLog("Removed TextView (" + textViewHashCode + ") from pending set (no callback action).")
-                    }
-                } else if (userData != null) {
-                    val hashToRemove = userData!!.hashCode()
-                    if (Alltrans.Companion.pendingTextViewTranslations.remove(hashToRemove)) {
-                        Utils.debugLog("Removed non-TextView userData (" + hashToRemove + ") from pending set (no callback action).")
-                    }
-                }
-                // --- FIM DA REMOÇÃO DO SET (SEM CALLBACK) ---
+            response.body?.close() // Ensure body is closed
+            // This `finally` block will now primarily handle single translation callbacks.
+            // Batch callbacks are handled within the `isBatchMicrosoft` block.
+            if (!isBatchMicrosoft) {
+                val finalString: String = translatedString ?: stringToBeTrans ?: ""
+                Utils.debugLog("Final single translation result before callback: [$finalString]")
+                triggerSingleCallback(finalString, stringToBeTrans, userData, originalCallable, canCallOriginal)
             }
-            // --- Fim da Lógica de Callback Atualizada ---
         }
-    } // Fim do onResponse
+    }
 
-    // A assinatura DEVE corresponder exatamente à interface Callback
-    override fun onFailure(call: Call, e: IOException) {
-        val localOriginalString = stringToBeTrans
-        var currentHashCode: Int? = null // Variável para guardar o hashcode
-        if (userData != null) {
-            currentHashCode = userData!!.hashCode() // Pega o hashcode
+    private fun cacheTranslation(original: String?, translated: String?) {
+        if (original == null || translated == null || !PreferenceList.Caching || translated == original) {
+            if (translated == original) Utils.debugLog("Skipping cache update for identical translation.")
+            return
         }
-        Log.e(
-            "AllTrans",
-            "Network request failed for: [" + localOriginalString + "] " + Log.getStackTraceString(e)
-        )
-
+        Alltrans.Companion.cacheAccess.acquireUninterruptibly()
         try {
-            // --- Lógica de Callback Atualizada para Falha ---
-            if (userData is TextView) {
-                Utils.debugLog("Network failure for TextView (" + currentHashCode + "), original text remains.")
-            } else if (canCallOriginal && originalCallable != null) {
-                Utils.debugLog("Calling originalCallable.callOriginalMethod on failure for other hook type with original text: [" + localOriginalString + "]")
-                val finalCurrentHashCode = currentHashCode // Final para lambda
-                Handler(Looper.getMainLooper()).postDelayed(Runnable {
-                    if (originalCallable != null) {
-                        try {
-                            originalCallable!!.callOriginalMethod(localOriginalString, userData)
-                        } catch (t: Throwable) {
-                            Log.e(
-                                "AllTrans",
-                                "Error executing originalCallable.callOriginalMethod on failure",
-                                t
-                            )
-                        } finally {
-                            // --- INÍCIO DA REMOÇÃO DO SET (OUTROS TIPOS - FALHA) ---
-                            if (finalCurrentHashCode != null) {
-                                if (Alltrans.Companion.pendingTextViewTranslations.remove(
-                                        finalCurrentHashCode
-                                    )
-                                ) {
-                                    Utils.debugLog("Removed non-TextView userData (" + finalCurrentHashCode + ") from pending set after onFailure callback.")
-                                }
-                            }
-                            // --- FIM DA REMOÇÃO DO SET (OUTROS TIPOS - FALHA) ---
-                        }
-                    } else {
-                        Log.e(
-                            "AllTrans",
-                            "originalCallable became null before executing failure callback on main thread."
-                        )
-                        // --- INÍCIO DA REMOÇÃO DO SET (OUTROS TIPOS - FALHA NO CALLBACK) ---
-                        if (finalCurrentHashCode != null) {
-                            if (Alltrans.Companion.pendingTextViewTranslations.remove(
-                                    finalCurrentHashCode
-                                )
-                            ) {
-                                Utils.debugLog("Removed non-TextView userData (" + finalCurrentHashCode + ") from pending set after originalCallable became null on failure.")
-                            }
-                        }
-                        // --- FIM DA REMOÇÃO DO SET (OUTROS TIPOS - FALHA NO CALLBACK) ---
-                    }
-                }, PreferenceList.Delay.toLong())
-            } else {
-                Utils.debugLog("No suitable failure callback action found for userData type: " + (if (userData != null) userData!!.javaClass.getName() else "null"))
-                // --- INÍCIO DA REMOÇÃO DO SET (SEM CALLBACK - FALHA) ---
-                if (currentHashCode != null) {
-                    if (Alltrans.Companion.pendingTextViewTranslations.remove(currentHashCode)) {
-                        Utils.debugLog("Removed userData (" + currentHashCode + ") from pending set (no callback action on failure).")
-                    }
-                }
-                // --- FIM DA REMOÇÃO DO SET (SEM CALLBACK - FALHA) ---
-            }
-            // --- Fim da Lógica de Callback Atualizada para Falha ---
+            Utils.debugLog("Putting in cache: [$original] -> [$translated]")
+            Alltrans.Companion.cache?.let {
+                it[original] = translated // Removed non-null assertions
+                it[translated] = translated // Cache translated form as well
+            } ?: Utils.debugLog("Cache object is null, cannot update cache.")
         } finally {
-            // --- INÍCIO DA REMOÇÃO DO SET (GARANTIA EM CASO DE FALHA) ---
-            // Remove do set mesmo se a tradução falhar (caso não tenha sido removido no callback)
-            if (currentHashCode != null) {
-                if (Alltrans.Companion.pendingTextViewTranslations.remove(currentHashCode)) {
-                    Utils.debugLog("Removed userData (" + currentHashCode + ") from pending set in onFailure finally block.")
+            if (Alltrans.Companion.cacheAccess.availablePermits() == 0) {
+                Alltrans.Companion.cacheAccess.release()
+            }
+        }
+    }
+
+    private fun triggerSuccessCallback(translatedText: String, callbackInfo: CallbackInfo) {
+        val currentHashCode = callbackInfo.userData?.hashCode()
+        Handler(Looper.getMainLooper()).postDelayed({
+            try {
+                if (callbackInfo.userData is TextView) {
+                    val tv = callbackInfo.userData
+                    if (translatedText != callbackInfo.originalString) {
+                        Utils.debugLog("Updating TextView (${tv.hashCode()}) with batch translated text: [$translatedText]")
+                        tv.text = translatedText
+                    } else {
+                        Utils.debugLog("Skipping TextView update for (${tv.hashCode()}), batch translated text is same as original: [$translatedText]")
+                    }
+                } else if (callbackInfo.canCallOriginal && callbackInfo.originalCallable != null) {
+                    Utils.debugLog("Calling originalCallable.callOriginalMethod for batch item with text: [$translatedText]")
+                    callbackInfo.originalCallable.callOriginalMethod(translatedText, callbackInfo.userData)
+                } else {
+                    Utils.debugLog("No suitable callback action for batch item userData type: ${callbackInfo.userData?.javaClass?.name ?: "null"}")
+                }
+            } catch (e: Exception) {
+                Log.e("AllTrans", "Error in batch success callback for ${callbackInfo.originalString}", e)
+            } finally {
+                currentHashCode?.let {
+                    if (Alltrans.Companion.pendingTextViewTranslations.remove(it)) {
+                        Utils.debugLog("Removed item hash ($it) from pending set after batch onResponse.")
+                    }
                 }
             }
-            // --- FIM DA REMOÇÃO DO SET (GARANTIA EM CASO DE FALHA) ---
+        }, PreferenceList.Delay.toLong())
+    }
+
+    private fun triggerSingleCallback(finalString: String, originalString: String?, currentLocalUserData: Any?, currentLocalOriginalCallable: OriginalCallable?, currentLocalCanCallOriginal: Boolean) {
+        val currentHashCode = currentLocalUserData?.hashCode()
+        Handler(Looper.getMainLooper()).postDelayed({
+            try {
+                if (currentLocalUserData is TextView) {
+                    if (finalString != originalString) { // only update if different
+                        Utils.debugLog("Updating TextView (${currentLocalUserData.hashCode()}) with single translated text: [$finalString]")
+                        currentLocalUserData.text = finalString
+                    } else {
+                        Utils.debugLog("Skipping TextView update for (${currentLocalUserData.hashCode()}), single translated text is same as original: [$finalString]")
+                    }
+                } else if (currentLocalCanCallOriginal && currentLocalOriginalCallable != null) {
+                    Utils.debugLog("Calling originalCallable.callOriginalMethod for single item with text: [$finalString]")
+                    currentLocalOriginalCallable.callOriginalMethod(finalString, currentLocalUserData)
+                } else {
+                    Utils.debugLog("No suitable callback action for single item userData type: ${currentLocalUserData?.javaClass?.name ?: "null"}")
+                }
+            } catch (e: Exception) {
+                Log.e("AllTrans", "Error in single item callback for $originalString", e)
+            } finally {
+                currentHashCode?.let {
+                    if (Alltrans.Companion.pendingTextViewTranslations.remove(it)) {
+                        Utils.debugLog("Removed item hash ($it) from pending set after single onResponse.")
+                    }
+                }
+            }
+        }, PreferenceList.Delay.toLong())
+    }
+
+    private fun handleBatchFailure(callbacks: List<CallbackInfo>, reason: String) {
+        Utils.debugLog("Handling batch failure: $reason")
+        callbacks.forEach { cbInfo ->
+            val currentHashCode = cbInfo.userData?.hashCode()
+            Handler(Looper.getMainLooper()).postDelayed({
+                try {
+                    if (cbInfo.canCallOriginal && cbInfo.originalCallable != null) {
+                        Utils.debugLog("Calling originalCallable for batch item ${cbInfo.originalString} on failure.")
+                        cbInfo.originalCallable.callOriginalMethod(cbInfo.originalString ?: "", cbInfo.userData)
+                    } else if (cbInfo.userData is TextView) {
+                        Utils.debugLog("Network failure for TextView from batch (${cbInfo.userData.hashCode()}), original text (${cbInfo.originalString}) remains.")
+                    } else {
+                        Utils.debugLog("No suitable failure callback for batch item ${cbInfo.originalString}, userData: ${cbInfo.userData?.javaClass?.name}")
+                    }
+                } catch (t: Throwable) {
+                    Log.e("AllTrans", "Error executing originalCallable on batch failure for ${cbInfo.originalString}", t)
+                } finally {
+                    currentHashCode?.let {
+                        if (Alltrans.Companion.pendingTextViewTranslations.remove(it)) {
+                            Utils.debugLog("Removed item hash ($it) from pending set after batch onFailure processing.")
+                        }
+                    }
+                }
+            }, PreferenceList.Delay.toLong())
         }
-    } // Fim do onFailure
-} // Fim da classe GetTranslate
+    }
+
+    override fun onFailure(call: Call, e: IOException) {
+        val isBatchMicrosoft = PreferenceList.TranslatorProvider == "m" && stringsToBeTrans?.isNotEmpty() == true && callbackDataList?.isNotEmpty() == true
+        val localOriginalStringForSingle = stringToBeTrans // Only for single context
+        val localUserDataForSingle = userData // Only for single context
+        val localOriginalCallableForSingle = originalCallable
+        val localCanCallOriginalForSingle = canCallOriginal
+
+        Log.e("AllTrans", "Network request failed for: [${if(isBatchMicrosoft) "BATCH of " + stringsToBeTrans?.size + " items" else localOriginalStringForSingle ?: "Unknown"}] ${Log.getStackTraceString(e)}")
+
+        if (isBatchMicrosoft) {
+            handleBatchFailure(callbackDataList!!, "Network Error: ${e.message}")
+        } else { // Single translation failure
+            val currentHashCode = localUserDataForSingle?.hashCode()
+            Handler(Looper.getMainLooper()).postDelayed({
+                try {
+                    if (localUserDataForSingle is TextView) {
+                        Utils.debugLog("Network failure for single TextView ($currentHashCode), original text remains.")
+                        // Text remains original, no action needed on TextView text itself
+                    } else if (localCanCallOriginalForSingle && localOriginalCallableForSingle != null) {
+                        Utils.debugLog("Calling originalCallable.callOriginalMethod on single failure for [$localOriginalStringForSingle]")
+                        localOriginalCallableForSingle.callOriginalMethod(localOriginalStringForSingle.orEmpty(), localUserDataForSingle)
+                    } else {
+                        Utils.debugLog("No suitable failure callback for single item [$localOriginalStringForSingle], userData: ${localUserDataForSingle?.javaClass?.name}")
+                    }
+                } catch (t: Throwable) {
+                    Log.e("AllTrans", "Error executing originalCallable on single failure for [$localOriginalStringForSingle]", t)
+                } finally {
+                    currentHashCode?.let {
+                        if (Alltrans.Companion.pendingTextViewTranslations.remove(it)) {
+                            Utils.debugLog("Removed item hash ($it) from pending set after single onFailure.")
+                        }
+                    }
+                }
+            }, PreferenceList.Delay.toLong())
+        }
+    }
+}

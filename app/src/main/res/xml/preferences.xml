@@ -26,6 +26,13 @@
             app:useSimpleSummaryProvider="true"
             android:layout="@layout/preference_material_item" />
 
+        <SwitchPreferenceCompat
+            app:iconSpaceReserved="false"
+            app:key="global_ms_batch_translate_enabled"
+            app:title="Enable Microsoft Batch Translation"
+            app:summary="Translate multiple texts in one request for Microsoft provider (recommended)"
+            app:defaultValue="true" />
+
         <EditTextPreference
             app:iconSpaceReserved="false"
             app:key="SubscriptionKey"

@@ -43,6 +43,18 @@
             app:useSimpleSummaryProvider="true"
             android:layout="@layout/preference_material_item" />
 
+        <ListPreference
+            app:iconSpaceReserved="false"
+            app:key="app_ms_batch_translate_mode"
+            app:title="Microsoft Batch Translation Mode"
+            app:summary="%s"
+            app:entries="@array/ms_batch_mode_entries"
+            app:entryValues="@array/ms_batch_mode_entry_values"
+            app:defaultValue="global"
+            app:useSimpleSummaryProvider="true"
+            android:layout="@layout/preference_material_item"
+            app:dependency="OverRide" />
+
         <SwitchPreference
             app:iconSpaceReserved="false"
             app:defaultValue="false"
