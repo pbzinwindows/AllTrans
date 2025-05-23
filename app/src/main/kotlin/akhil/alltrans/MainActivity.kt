@@ -62,7 +62,7 @@ class MainViewModel : ViewModel() {
     }
 
     enum class FragmentType {
-        APPS, SETTINGS, INSTRUCTIONS
+        APPS, SETTINGS, INSTRUCTIONS, MODEL_MANAGEMENT // Added MODEL_MANAGEMENT
     }
 }
 
@@ -128,6 +128,7 @@ class MainActivity : AppCompatActivity() {
             MainViewModel.FragmentType.APPS -> R.string.apps_to_translate
             MainViewModel.FragmentType.SETTINGS -> R.string.global_settings
             MainViewModel.FragmentType.INSTRUCTIONS -> R.string.instructions
+            MainViewModel.FragmentType.MODEL_MANAGEMENT -> R.string.title_model_management // New case
         }
         supportActionBar?.title = getString(titleRes)
     }
@@ -138,6 +139,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.navigation_apps -> MainViewModel.FragmentType.APPS
                 R.id.navigation_settings -> MainViewModel.FragmentType.SETTINGS
                 R.id.navigation_instructions -> MainViewModel.FragmentType.INSTRUCTIONS
+                R.id.navigation_model_management -> MainViewModel.FragmentType.MODEL_MANAGEMENT // New case
                 else -> viewModel.currentFragmentType.value // Não mudar se for um item desconhecido
             }
             // Se o tipo de fragmento alvo é diferente do atual, navegue.
@@ -156,6 +158,7 @@ class MainActivity : AppCompatActivity() {
                     MainViewModel.FragmentType.APPS -> R.id.navigation_apps
                     MainViewModel.FragmentType.SETTINGS -> R.id.navigation_settings
                     MainViewModel.FragmentType.INSTRUCTIONS -> R.id.navigation_instructions
+                    MainViewModel.FragmentType.MODEL_MANAGEMENT -> R.id.navigation_model_management // New case
                 }
                 if (bottomNavigationView.selectedItemId != itemId) {
                     bottomNavigationView.selectedItemId = itemId
@@ -175,6 +178,7 @@ class MainActivity : AppCompatActivity() {
             MainViewModel.FragmentType.APPS -> AppListFragment()
             MainViewModel.FragmentType.SETTINGS -> GlobalPreferencesFragment()
             MainViewModel.FragmentType.INSTRUCTIONS -> InstructionsFragment()
+            MainViewModel.FragmentType.MODEL_MANAGEMENT -> ModelManagerFragment() // New case
         }
 
         // Se estava na tela de APPS e está saindo dela, e a searchview está expandida, colapse-a.
@@ -195,6 +199,7 @@ class MainActivity : AppCompatActivity() {
                 MainViewModel.FragmentType.APPS -> R.id.navigation_apps
                 MainViewModel.FragmentType.SETTINGS -> R.id.navigation_settings
                 MainViewModel.FragmentType.INSTRUCTIONS -> R.id.navigation_instructions
+                MainViewModel.FragmentType.MODEL_MANAGEMENT -> R.id.navigation_model_management // New case
             }
             if (bottomNavigationView.selectedItemId != itemId) {
                 bottomNavigationView.selectedItemId = itemId

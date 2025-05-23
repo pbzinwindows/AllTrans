@@ -12,6 +12,11 @@
         android:title="Global" />
 
     <item
+        android:id="@+id/navigation_model_management"
+        android:icon="@drawable/ic_cloud_download"
+        android:title="@string/title_model_management" />
+
+    <item
         android:id="@+id/navigation_instructions"
         android:icon="@drawable/ic_instructions"
         android:title="@string/instructions" />

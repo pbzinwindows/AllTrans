@@ -74,7 +74,7 @@
 
 
     <!-- Categories Translate Settings -->
-     translator_provider
+    translator_provider
     <string name="translator_provider">"Translation Service Provider"</string>
     <string name="translator_provider_summary">"Select which Translation Service to use - Google, Microsoft, or Yandex"</string>
     <string name="translator_provider_google">"\nGoogle - This translation works offline, after initial download of around 30-60 MB. Translations are slow, makes apps \"lag\" or \"hang\" a bit. No need for any API key. Free.\n"</string>
@@ -406,4 +406,21 @@
     <string name="Cantonese_Traditional_micro">"Cantonese (Traditional)"</string>
     <string name="Chinese_Simplified_micro">"Chinese Simplified"</string>
     <string name="Chinese_Traditional_micro">"Chinese Traditional"</string>
+    <string name="title_model_management">Manage Models</string>
+
+    <!-- Model Manager Strings -->
+    <string name="status_downloading">Downloading...</string>
+    <string name="status_downloaded">Downloaded</string>
+    <string name="status_not_downloaded">Not Downloaded</string>
+    <string name="button_download">Download</string>
+    <string name="button_delete">Delete</string>
+    <string name="toast_model_deleted_successfully">%1$s model deleted.</string>
+    <string name="toast_failed_to_delete_model">Failed to delete %1$s model: %2$s</string>
+    <string name="toast_failed_to_download_model">Failed to download %1$s model: %2$s</string>
+    <string name="toast_download_started">Downloading %1$s model...</string>
+    <string name="toast_model_downloaded_successfully">Modelo %1$s baixado com sucesso.</string>
+
+    <string name="info_loading_models">Loading language models...</string>
+    <string name="info_no_models_available">No language models available to manage.</string>
+    <string name="info_error_loading_models">Failed to load language models. Please check your internet connection and try again.</string>
 </resources>

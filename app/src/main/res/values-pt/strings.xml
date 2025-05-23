@@ -305,4 +305,20 @@
 	<string name="Cantonese_Traditional_micro">"Cantonês (Tradicional)"</string>
 	<string name="Chinese_Simplified_micro">"Chinês simplificado"</string>
 	<string name="Chinese_Traditional_micro">"Chinês tradicional"</string>
+
+	<!-- Model Manager Strings -->
+	<string name="status_downloading">Baixando...</string>
+	<string name="status_downloaded">Baixado</string>
+	<string name="status_not_downloaded">Não Baixado</string>
+	<string name="button_download">Baixar</string>
+	<string name="button_delete">Excluir</string>
+	<string name="toast_model_deleted_successfully">Modelo %1$s excluído.</string>
+	<string name="toast_failed_to_delete_model">Falha ao excluir modelo %1$s: %2$s</string>
+	<string name="toast_failed_to_download_model">Falha ao baixar modelo %1$s: %2$s</string>
+	<string name="toast_download_started">Baixando modelo %1$s...</string>
+
+	<string name="title_model_management">Gerenciar Modelos</string>
+	<string name="info_loading_models">Carregando modelos de idioma...</string>
+	<string name="info_no_models_available">Nenhum modelo de idioma disponível para gerenciar.</string>
+	<string name="info_error_loading_models">Falha ao carregar modelos de idioma. Verifique sua conexão com a internet e tente novamente.</string>
 </resources>

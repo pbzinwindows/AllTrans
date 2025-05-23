@@ -1,7 +1,6 @@
 // Apply plugins at the top
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
-// Firebase Crashlytics plugin removido
 
 android {
     signingConfigs {
@@ -13,28 +12,28 @@ android {
         }
     }
     compileSdk 35
-//    buildToolsVersion '32.0.0' // Geralmente não é mais necessário especificar buildToolsVersion
+    namespace 'akhil.alltrans'
 
     defaultConfig {
         applicationId "akhil.alltrans"
         minSdkVersion 29
-        targetSdkVersion 35 // Mantido, bom para M3
+        targetSdkVersion 35
         versionCode 196
         versionName "1.9.6"
-        multiDexEnabled true // Suficiente para minSdk 29+, não precisa da dependência antiga
+        multiDexEnabled true
         signingConfig signingConfigs.publish
     }
+
     buildTypes {
         debug {
-            minifyEnabled false // Mantenha false para debug, ou configure regras específicas se habilitar
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro' // Use -optimize
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         release {
-            minifyEnabled false // Considere habilitar para release (true) e testar exaustivamente
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro' // Use -optimize
+            minifyEnabled true // Habilitado para release para reduzir tamanho do APK
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
-    namespace 'akhil.alltrans'
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
@@ -45,47 +44,55 @@ android {
         jvmTarget = '1.8'
     }
 
-    // Habilitar ViewBinding (opcional, mas recomendado para interagir com views de forma segura)
-    // buildFeatures {
-    //     viewBinding true
-    // }
+    // Habilitar ViewBinding (recomendado)
+    buildFeatures {
+        viewBinding true
+    }
 }
 
 repositories {
     google()
     mavenCentral()
-    // maven { url "https://jitpack.io" } // Descomente se alguma dependência exigir
 }
 
 dependencies {
-    implementation 'androidx.core:core-ktx:1.16.0' // Mais recente estável
-    compileOnly 'de.robv.android.xposed:api:82' // Removido :sources
+    // Kotlin e Core
+    implementation 'androidx.core:core-ktx:1.16.0'
+    compileOnly 'de.robv.android.xposed:api:82'
 
-    implementation 'com.google.code.gson:gson:2.13.1' // Versão mais recente
-    implementation 'com.squareup.okhttp3:okhttp:4.12.0' // Já é recente
+    // Network e JSON
+    implementation 'com.google.code.gson:gson:2.13.1'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 
-    implementation 'androidx.appcompat:appcompat:1.7.0' // Mais recente estável
-
-    // Material Design 3 - versão ajustada para incluir todos os componentes
+    // UI Components
+    implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
 
-    // Preferences com suporte para Material3
-    implementation 'androidx.preference:preference:1.2.1'
+    // SwipeRefreshLayout (para corrigir o erro do ModelManagerFragment)
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+
+    // RecyclerView
+    implementation 'androidx.recyclerview:recyclerview:1.4.0'
+
+    // Preferences
     implementation 'androidx.preference:preference-ktx:1.2.1'
 
-    implementation 'androidx.constraintlayout:constraintlayout:2.2.1' // Exemplo de versão, verifique a mais recente
-
-    // ML Kit
-    implementation 'com.google.mlkit:translate:17.0.3' // 17.0.2 é a última estável conhecida, verifique se 17.0.3 tem algum problema específico.
+    // ML Kit - Versões estáveis e corretas
+    implementation 'com.google.mlkit:translate:17.0.3'
     implementation 'com.google.android.gms:play-services-mlkit-language-id:17.0.0'
 
     // Lifecycle & Coroutines
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.9.0'
     implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.0'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3' // (1.8.1 é mais recente)
-}
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
 
-// Plugin Google Services removido
+    // Fragment KTX (para usar fragmentos de forma mais moderna)
+    implementation 'androidx.fragment:fragment-ktx:1.8.7'
+
+    // Activity KTX
+    implementation 'androidx.activity:activity-ktx:1.10.1'
+}
 
 // Suas tasks customizadas (mantidas como estão)
 afterEvaluate {
