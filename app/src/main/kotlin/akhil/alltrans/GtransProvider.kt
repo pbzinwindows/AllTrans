@@ -97,7 +97,7 @@ class GtransProvider : ContentProvider() {
         }
 
         // 4. Determine actualSourceLanguage
-        if (detectedLanguageCode != null && detectedLanguageCode != "und") {
+        if (detectedLanguageCode != null && detectedLanguageCode != "und") { // Corrected based on user feedback
             Utils.debugLog(GtransProvider.TAG + ": Language auto-detected: $detectedLanguageCode for text: [$textToTranslate]")
             actualSourceLanguage = detectedLanguageCode
         } else {
@@ -121,14 +121,11 @@ class GtransProvider : ContentProvider() {
         // Crucial Check: If actual source is the same as target, return original text
         if (actualSourceLanguage == toLanguage) {
             Utils.debugLog(GtransProvider.TAG + ": Skipping translation: Actual source language ($actualSourceLanguage) is the same as target language ($toLanguage).")
-            // This logic is similar to the original "skip translation" block
             val resultColumns: Array<String?> = if (projection == null || projection.isEmpty()) {
                 arrayOf(COLUMN_TRANSLATE)
             } else {
-                // Ensure COLUMN_TRANSLATE is in projection if specific columns are requested
                 if (!projection.any { it.equals(COLUMN_TRANSLATE, ignoreCase = true) }) {
                     Log.w(GtransProvider.Companion.TAG, "Requested projection does not include '$COLUMN_TRANSLATE'. Returning original text in default column.")
-                    // Or return MatrixCursor(projection) if no data should be added
                     return MatrixCursor(projection) // Return empty cursor matching projection
                 }
                 projection
@@ -151,22 +148,19 @@ class GtransProvider : ContentProvider() {
                 Log.w(GtransProvider.Companion.TAG, "Invalid 'actualSourceLanguage' code: $actualSourceLanguage after detection and fallback.")
                 return createErrorCursor("Invalid 'from' language: $actualSourceLanguage", projection)
             }
-            // toLanguage was already checked for null/empty, but not for validity against TranslateLanguage.getAllLanguages()
             if (!TranslateLanguage.getAllLanguages().contains(toLanguage)) {
                 Log.w(GtransProvider.Companion.TAG, "Invalid 'to' language code: $toLanguage")
                 return createErrorCursor("Invalid 'to' language: $toLanguage", projection)
             }
-        } catch (e: IllegalArgumentException) { // Should not happen if getAllLanguages() is used correctly
+        } catch (e: IllegalArgumentException) {
             Log.e(GtransProvider.Companion.TAG, "Language code validation failed unexpectedly", e)
             return createErrorCursor("Language code validation error", projection)
         }
 
-        // Proceed with translator setup using actualSourceLanguage and toLanguage
         val hashKey = actualSourceLanguage + "##" + toLanguage
-        val finalFromLang: String = actualSourceLanguage!! // Now guaranteed non-null
-        val finalToLang: String = toLanguage!!       // Now guaranteed non-null
+        val finalFromLang: String = actualSourceLanguage!!
+        val finalToLang: String = toLanguage!!
 
-        // 2. Criar/Obter Translator (This part is mostly from the original code)
         val finalTranslator: Translator?
         synchronized(translatorClients) {
             var translator = translatorClients.get(hashKey)
@@ -174,8 +168,8 @@ class GtransProvider : ContentProvider() {
                 Utils.debugLog(GtransProvider.Companion.TAG + ": Creating new Translator for $finalFromLang -> $finalToLang")
                 try {
                     val options = TranslatorOptions.Builder()
-                        .setSourceLanguage(finalFromLang) // Use finalFromLang
-                        .setTargetLanguage(finalToLang)   // Use finalToLang
+                        .setSourceLanguage(finalFromLang)
+                        .setTargetLanguage(finalToLang)
                         .build()
                     translator = Translation.getClient(options)
                     translatorClients.put(hashKey, translator)
@@ -191,7 +185,6 @@ class GtransProvider : ContentProvider() {
             finalTranslator = translator
         }
 
-        // 3. Submeter a tarefa bloqueante para o ExecutorService
         val translationTask = Callable {
             try {
                 val task = finalTranslator!!.translate(textToTranslate)
@@ -199,7 +192,7 @@ class GtransProvider : ContentProvider() {
                     task,
                     10,
                     TimeUnit.SECONDS
-                ) // BLOQUEANTE AQUI (dentro da thread do executor)
+                )
                 Utils.debugLog(GtransProvider.Companion.TAG + ": ML Kit translation successful for: [" + textToTranslate + "]")
                 return@Callable if (result != null) result else textToTranslate
             } catch (e: TimeoutException) {
@@ -209,7 +202,6 @@ class GtransProvider : ContentProvider() {
                 )
                 return@Callable textToTranslate
             } catch (e: Exception) {
-                // Diferenciar erro de modelo não baixado
                 if (e.cause is MlKitException && (e.cause as MlKitException).getErrorCode() == MlKitException.UNAVAILABLE) {
                     Log.w(
                         GtransProvider.Companion.TAG,
@@ -229,7 +221,6 @@ class GtransProvider : ContentProvider() {
         val futureResult: Future<String?> =
             GtransProvider.Companion.mlKitExecutor!!.submit<String?>(translationTask)
 
-        // 4. Esperar pelo Future (AINDA BLOQUEIA o Binder thread do provider)
         var translatedString: String? = textToTranslate
         try {
             translatedString = futureResult.get(12, TimeUnit.SECONDS)
@@ -243,7 +234,6 @@ class GtransProvider : ContentProvider() {
             translatedString = textToTranslate
         }
 
-        // 5. Construir e retornar o Cursor
         val durationNs = System.nanoTime() - startTime
         Utils.debugLog(
             GtransProvider.Companion.TAG + ": Query processing took " + TimeUnit.NANOSECONDS.toMillis(
@@ -284,7 +274,6 @@ class GtransProvider : ContentProvider() {
         return cursor
     }
 
-    // Função auxiliar para criar cursor de erro
     private fun createErrorCursor(errorMessage: String?, projection: Array<String?>?): Cursor {
         val columns: Array<String?> =
             if (projection == null || projection.size == 0) arrayOf<String?>(
@@ -298,7 +287,6 @@ class GtransProvider : ContentProvider() {
     }
 
     override fun shutdown() {
-        // ... (código de shutdown como antes) ...
         super.shutdown()
         Utils.debugLog(GtransProvider.Companion.TAG + ": shutdown initiated.")
         synchronized(translatorClients) {
@@ -327,8 +315,6 @@ class GtransProvider : ContentProvider() {
         Utils.debugLog(GtransProvider.Companion.TAG + ": shutdown complete.")
     }
 
-
-    // --- Métodos não suportados ---
     override fun getType(uri: Uri): String? {
         return null
     }
@@ -339,7 +325,7 @@ class GtransProvider : ContentProvider() {
             "Call method invoked, but not implemented. Returning null."
         )
         return null
-    } // Retornar null ou Bundle vazio
+    }
 
     override fun insert(uri: Uri, values: ContentValues?): Uri? {
         throw UnsupportedOperationException("Insert not supported")
@@ -360,13 +346,11 @@ class GtransProvider : ContentProvider() {
 
     companion object {
         private const val TAG = "AllTrans:gtransProv"
-        const val COLUMN_TRANSLATE: String = "translate" // Manter público
+        const val COLUMN_TRANSLATE: String = "translate"
 
-        // Usar um ExecutorService para rodar a tarefa bloqueante do ML Kit
         private val mlKitExecutor: ExecutorService? =
-            Executors.newCachedThreadPool() // Ou newFixedThreadPool(N)
+            Executors.newCachedThreadPool()
 
-        // Chaves (mantidas públicas para referência, embora não usadas diretamente por GetTranslateToken nesta versão)
         const val KEY_TEXT_TO_TRANSLATE: String = "text"
         const val KEY_FROM_LANGUAGE: String = "from"
         const val KEY_TO_LANGUAGE: String = "to"
