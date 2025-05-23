@@ -27,6 +27,8 @@ import android.os.Bundle
 import android.util.Log
 import androidx.annotation.GuardedBy
 import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.nl.languageid.LanguageIdentification
+import com.google.mlkit.nl.languageid.LanguageIdentifier
 import com.google.mlkit.common.MlKitException
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
@@ -64,53 +66,118 @@ class GtransProvider : ContentProvider() {
         val startTime = System.nanoTime()
         Utils.debugLog(GtransProvider.Companion.TAG + ": Received query URI: " + uri)
 
-        // 1. Extrair parâmetros da URI
-        val fromLanguage = uri.getQueryParameter(KEY_FROM_LANGUAGE)
+        // 1. Extract params
+        val uriFromLanguage = uri.getQueryParameter(KEY_FROM_LANGUAGE)
         val toLanguage = uri.getQueryParameter(KEY_TO_LANGUAGE)
         val textToTranslate = uri.getQueryParameter(KEY_TEXT_TO_TRANSLATE)
 
-        if (fromLanguage == null || toLanguage == null || textToTranslate == null || textToTranslate.isEmpty()) {
-            Log.w(
-                GtransProvider.Companion.TAG,
-                "Query missing required parameters (from, to, text). URI: " + uri
-            )
-            return createErrorCursor("Missing parameters", projection)
+        var actualSourceLanguage: String? = uriFromLanguage // Initialize with URI's from_language
+
+        // 2. Initial null/empty checks for textToTranslate and toLanguage
+        if (textToTranslate.isNullOrEmpty()) {
+            Log.w(GtransProvider.Companion.TAG, "Text to translate is null or empty. URI: $uri")
+            return createErrorCursor("Text to translate is null or empty", projection)
         }
-        // Validar códigos de idioma
+        if (toLanguage.isNullOrEmpty()) {
+            Log.w(GtransProvider.Companion.TAG, "Target language is null or empty. URI: $uri")
+            return createErrorCursor("Target language is null or empty", projection)
+        }
+
+        // 3. Language Identification Block
+        var detectedLanguageCode: String? = null
+        // Only run if text is not empty (already checked above, but good practice if this block were moved)
+        val languageIdentifier = LanguageIdentification.getClient()
         try {
-            if (!TranslateLanguage.getAllLanguages()
-                    .contains(fromLanguage) && "auto" != fromLanguage
-            ) {
-                Log.w(GtransProvider.Companion.TAG, "Invalid 'from' language code: " + fromLanguage)
-                return createErrorCursor("Invalid 'from' language", projection)
-            }
-            if (!TranslateLanguage.getAllLanguages().contains(toLanguage)) {
-                Log.w(GtransProvider.Companion.TAG, "Invalid 'to' language code: " + toLanguage)
-                return createErrorCursor("Invalid 'to' language", projection)
-            }
-        } catch (e: IllegalArgumentException) {
-            Log.e(GtransProvider.Companion.TAG, "Language code validation failed", e)
-            return createErrorCursor("Language validation error", projection)
+            Utils.debugLog(GtransProvider.TAG + ": Attempting language identification for text: [$textToTranslate]")
+            detectedLanguageCode = Tasks.await(languageIdentifier.identifyLanguage(textToTranslate), 5, TimeUnit.SECONDS)
+            Utils.debugLog(GtransProvider.TAG + ": Language identification task completed. Detected: $detectedLanguageCode")
+        } catch (e: Exception) { // Catches TimeoutException, InterruptedException, ExecutionException
+            Log.w(GtransProvider.Companion.TAG, "Language identification task failed for text: [$textToTranslate]", e)
+            // detectedLanguageCode remains null, proceed with fallback logic
         }
 
+        // 4. Determine actualSourceLanguage
+        if (detectedLanguageCode != null && detectedLanguageCode != "und") {
+            Utils.debugLog(GtransProvider.TAG + ": Language auto-detected: $detectedLanguageCode for text: [$textToTranslate]")
+            actualSourceLanguage = detectedLanguageCode
+        } else {
+            Utils.debugLog(GtransProvider.TAG + ": Language detection failed or 'und'. Using URI fromLanguage: $uriFromLanguage as actualSourceLanguage.")
+            actualSourceLanguage = uriFromLanguage // Fallback to URI's fromLanguage
+            if (actualSourceLanguage == "auto" || actualSourceLanguage.isNullOrEmpty()) {
+                Log.w(GtransProvider.Companion.TAG, "Cannot translate: Detection failed and URI fromLanguage is '$actualSourceLanguage'.")
+                return createErrorCursor("Language unclear, cannot translate", projection)
+            }
+        }
 
-        val hashKey = fromLanguage + "##" + toLanguage
-        val finalFromLang: String? = fromLanguage
-        val finalToLang: String? = toLanguage
+        // At this point, actualSourceLanguage should be a concrete, non-null, non-"auto" language code.
+        // Or we've returned an error cursor in the block above.
 
-        // 2. Criar/Obter Translator
-        var translator: Translator?
+        // 5. Final checks and setup for translation
+        if (actualSourceLanguage.isNullOrEmpty()) { // Safeguard, should have been caught by the logic above.
+            Log.e(GtransProvider.Companion.TAG, "Critical Error: actualSourceLanguage is null or empty before translation logic.")
+            return createErrorCursor("Source language could not be determined (critical error)", projection)
+        }
+
+        // Crucial Check: If actual source is the same as target, return original text
+        if (actualSourceLanguage == toLanguage) {
+            Utils.debugLog(GtransProvider.TAG + ": Skipping translation: Actual source language ($actualSourceLanguage) is the same as target language ($toLanguage).")
+            // This logic is similar to the original "skip translation" block
+            val resultColumns: Array<String?> = if (projection == null || projection.isEmpty()) {
+                arrayOf(COLUMN_TRANSLATE)
+            } else {
+                // Ensure COLUMN_TRANSLATE is in projection if specific columns are requested
+                if (!projection.any { it.equals(COLUMN_TRANSLATE, ignoreCase = true) }) {
+                    Log.w(GtransProvider.Companion.TAG, "Requested projection does not include '$COLUMN_TRANSLATE'. Returning original text in default column.")
+                    // Or return MatrixCursor(projection) if no data should be added
+                    return MatrixCursor(projection) // Return empty cursor matching projection
+                }
+                projection
+            }
+            val cursor = MatrixCursor(resultColumns)
+            val rowBuilder = cursor.newRow()
+            for (col in resultColumns) {
+                if (COLUMN_TRANSLATE.equals(col, ignoreCase = true)) {
+                    rowBuilder.add(textToTranslate)
+                } else {
+                    rowBuilder.add(null) // Add null for other projected columns
+                }
+            }
+            return cursor
+        }
+
+        // Validate actualSourceLanguage and toLanguage codes
+        try {
+            if (!TranslateLanguage.getAllLanguages().contains(actualSourceLanguage)) {
+                Log.w(GtransProvider.Companion.TAG, "Invalid 'actualSourceLanguage' code: $actualSourceLanguage after detection and fallback.")
+                return createErrorCursor("Invalid 'from' language: $actualSourceLanguage", projection)
+            }
+            // toLanguage was already checked for null/empty, but not for validity against TranslateLanguage.getAllLanguages()
+            if (!TranslateLanguage.getAllLanguages().contains(toLanguage)) {
+                Log.w(GtransProvider.Companion.TAG, "Invalid 'to' language code: $toLanguage")
+                return createErrorCursor("Invalid 'to' language: $toLanguage", projection)
+            }
+        } catch (e: IllegalArgumentException) { // Should not happen if getAllLanguages() is used correctly
+            Log.e(GtransProvider.Companion.TAG, "Language code validation failed unexpectedly", e)
+            return createErrorCursor("Language code validation error", projection)
+        }
+
+        // Proceed with translator setup using actualSourceLanguage and toLanguage
+        val hashKey = actualSourceLanguage + "##" + toLanguage
+        val finalFromLang: String = actualSourceLanguage!! // Now guaranteed non-null
+        val finalToLang: String = toLanguage!!       // Now guaranteed non-null
+
+        // 2. Criar/Obter Translator (This part is mostly from the original code)
+        val finalTranslator: Translator?
         synchronized(translatorClients) {
-            translator = translatorClients.get(hashKey)
+            var translator = translatorClients.get(hashKey)
             if (translator == null) {
-                Utils.debugLog(GtransProvider.Companion.TAG + ": Creating new Translator for " + hashKey)
+                Utils.debugLog(GtransProvider.Companion.TAG + ": Creating new Translator for $finalFromLang -> $finalToLang")
                 try {
                     val options = TranslatorOptions.Builder()
-                        .setSourceLanguage(finalFromLang!!)
-                        .setTargetLanguage(finalToLang!!)
+                        .setSourceLanguage(finalFromLang) // Use finalFromLang
+                        .setTargetLanguage(finalToLang)   // Use finalToLang
                         .build()
                     translator = Translation.getClient(options)
-                    // TODO: Gerenciar ciclo de vida/fechar este translator? (shutdown() ajuda)
                     translatorClients.put(hashKey, translator)
                 } catch (e: Exception) {
                     Log.e(
@@ -121,8 +188,8 @@ class GtransProvider : ContentProvider() {
                     return createErrorCursor("Failed to create translator", projection)
                 }
             }
+            finalTranslator = translator
         }
-        val finalTranslator = translator
 
         // 3. Submeter a tarefa bloqueante para o ExecutorService
         val translationTask = Callable {
