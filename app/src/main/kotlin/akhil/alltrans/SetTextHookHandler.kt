@@ -107,9 +107,12 @@ class SetTextHookHandler : XC_MethodHook() {
         }
 
         val textViewHashCode = textView.hashCode()
-        // Check if already pending (even before cache check, as pending implies it's being fetched)
-        if (Alltrans.pendingTextViewTranslations.contains(textViewHashCode)) {
-            Utils.debugLog("$TAG: Skipping translation for [" + stringArgs + "], already pending for TextView ($textViewHashCode)")
+        // Create composite key that includes both TextView and text content
+        val compositeKeyHash = "$textViewHashCode:${stringArgs.hashCode()}".hashCode()
+
+        // Check if already pending using the composite key
+        if (Alltrans.pendingTextViewTranslations.contains(compositeKeyHash)) {
+            Utils.debugLog("$TAG: Skipping translation for [" + stringArgs + "], already pending for composite key ($compositeKeyHash)")
             return // Let original setText proceed, new text will be set by pending callback if different
         }
 
@@ -147,7 +150,7 @@ class SetTextHookHandler : XC_MethodHook() {
             return
         }
 
-        Utils.debugLog("$TAG: Potential translation target: [" + stringArgs + "] for TextView (" + textViewHashCode + ")")
+        Utils.debugLog("$TAG: Potential translation target: [" + stringArgs + "] for TextView (" + textViewHashCode + ") with composite key ($compositeKeyHash)")
 
         var cachedTranslation: String? = null
         var translationRequested = false
@@ -166,12 +169,12 @@ class SetTextHookHandler : XC_MethodHook() {
                 }
             }
 
-            if (cachedTranslation == null && !Alltrans.pendingTextViewTranslations.contains(textViewHashCode)) {
-                Utils.debugLog("$TAG: String not cached or invalid/same in cache. Requesting fresh translation for: [" + stringArgs + "] for TextView (" + textViewHashCode + ")")
+            if (cachedTranslation == null && !Alltrans.pendingTextViewTranslations.contains(compositeKeyHash)) {
+                Utils.debugLog("$TAG: String not cached or invalid/same in cache. Requesting fresh translation for: [" + stringArgs + "] for composite key ($compositeKeyHash)")
                 translationRequested = true
 
                 if (PreferenceList.TranslatorProvider == "m" && PreferenceList.CurrentAppMicrosoftBatchEnabled) {
-                    Utils.debugLog("$TAG: Using BatchTranslationManager for Microsoft provider (batching enabled) for TextView: $textViewHashCode, Text: \"${stringArgs.take(50)}...\"")
+                    Utils.debugLog("$TAG: Using BatchTranslationManager for Microsoft provider (batching enabled) for composite key: $compositeKeyHash, Text: \"${stringArgs.take(50)}...\"")
                     Alltrans.batchManager.addString(
                         text = stringArgs,
                         userData = textView,
@@ -182,10 +185,10 @@ class SetTextHookHandler : XC_MethodHook() {
                 } else {
                     // Direct translation for non-Microsoft providers OR if MS batching is disabled for this app
                     val reason = if (PreferenceList.TranslatorProvider == "m") "(MS batching disabled)" else "(non-MS provider)"
-                    Utils.debugLog("$TAG: Using direct translation $reason for TextView: $textViewHashCode, Text: \"${stringArgs.take(50)}...\"")
+                    Utils.debugLog("$TAG: Using direct translation $reason for composite key: $compositeKeyHash, Text: \"${stringArgs.take(50)}...\"")
 
-                    Alltrans.pendingTextViewTranslations.add(textViewHashCode)
-                    Utils.debugLog("$TAG: Added TextView ($textViewHashCode) to pending set for direct translation.")
+                    Alltrans.pendingTextViewTranslations.add(compositeKeyHash)
+                    Utils.debugLog("$TAG: Added composite key ($compositeKeyHash) to pending set for direct translation.")
 
                     val getTranslate = GetTranslate()
                     getTranslate.stringToBeTrans = stringArgs

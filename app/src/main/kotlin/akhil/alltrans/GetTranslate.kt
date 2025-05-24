@@ -148,8 +148,9 @@ class GetTranslate : Callback {
         try {
             Utils.debugLog("Putting in cache: [$original] -> [$translated]")
             Alltrans.Companion.cache?.let {
-                it[original] = translated // Removed non-null assertions
-                it[translated] = translated // Cache translated form as well
+                it[original] = translated // Only cache original -> translated mapping
+                // Removed problematic line that cached translation as key for itself:
+                // it[translated] = translated // This was causing translation loops
             } ?: Utils.debugLog("Cache object is null, cannot update cache.")
         } finally {
             if (Alltrans.Companion.cacheAccess.availablePermits() == 0) {
