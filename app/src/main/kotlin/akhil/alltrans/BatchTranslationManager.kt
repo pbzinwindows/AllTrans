@@ -44,7 +44,7 @@ class BatchTranslationManager {
         private const val BATCH_TIMEOUT_MS = 500L // Milliseconds
     }
 
-    fun addString(text: String, userData: Any?, originalCallable: OriginalCallable?, canCallOriginal: Boolean) {
+    fun addString(text: String, userData: Any?, originalCallable: OriginalCallable?, canCallOriginal: Boolean, compositeKey: Int?) { // Parâmetro adicionado
         if (text.isEmpty()) {
             // Optionally handle empty strings: either ignore or pass them through for individual error handling if needed
             // For now, let's assume GetTranslate/GetTranslateToken will handle empty strings if they reach there.
@@ -64,9 +64,16 @@ class BatchTranslationManager {
             userData = userData,
             originalCallable = originalCallable,
             canCallOriginal = canCallOriginal,
-            originalString = text
+            originalString = text,
+            pendingCompositeKey = compositeKey // Novo campo atribuído
         )
         val batchItem = BatchItem(text, callbackInfo)
+
+        // Adicionar a compositeKey ao pendingTextViewTranslations
+        if (compositeKey != null) {
+            Alltrans.pendingTextViewTranslations.add(compositeKey)
+            Utils.debugLog("$TAG: Added composite key ($compositeKey) to pending set for batch.")
+        }
 
         var triggerProcessNow = false
         synchronized(queue) {
@@ -162,23 +169,15 @@ class BatchTranslationManager {
             if (currentBatchItems.isNotEmpty()) {
                 Log.i(TAG, "Dispatching batch of ${currentBatchStrings.size} strings, $batchCharCount chars.")
 
-                // Mark items as pending BEFORE dispatching
-                currentBatchCallbacks.forEach { cbInfo ->
-                    cbInfo.userData?.hashCode()?.let { hash ->
-                        // Alltrans.pendingTextViewTranslations is a synchronizedSet, so direct add is okay.
-                        val added = Alltrans.pendingTextViewTranslations.add(hash)
-                        if (added) {
-                            Utils.debugLog("$TAG: Added hash $hash (text: '${cbInfo.originalString?.take(30)}...') to pendingTextViewTranslations for batch dispatch.")
-                        } else {
-                            Utils.debugLog("$TAG: Hash $hash (text: '${cbInfo.originalString?.take(30)}...') was already in pendingTextViewTranslations (before batch dispatch).")
-                        }
-                    }
-                }
+                // Não adicionar mais ao pendingTextViewTranslations aqui, pois já foi feito em addString
+                // E o pendingCompositeKey já está em cada callbackInfo
 
                 val getTranslate = GetTranslate().apply {
                     this.stringsToBeTrans = currentBatchStrings
                     this.callbackDataList = currentBatchCallbacks
                     // languageToTranslate and sourceLanguage will be picked from PreferenceList inside GetTranslate/GetTranslateToken
+                    // O pendingCompositeKey individual de cada item em callbackDataList será usado por GetTranslate.kt
+                    // para remover a chave correta do pending set.
                 }
 
                 // GetTranslateToken is designed to be a new instance each time.

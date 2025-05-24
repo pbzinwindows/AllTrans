@@ -23,5 +23,6 @@ data class CallbackInfo(
     val userData: Any?,
     val originalCallable: OriginalCallable?,
     val canCallOriginal: Boolean,
-    val originalString: String? // Changed to nullable to fix type mismatch
+    val originalString: String?, // Changed to nullable to fix type mismatch
+    val pendingCompositeKey: Int? = null // Adicionado novo campo
 )

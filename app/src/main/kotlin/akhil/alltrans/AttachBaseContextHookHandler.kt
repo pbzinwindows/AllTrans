@@ -1,6 +1,7 @@
 // AttachBaseContextHookHandler.kt (com correção)
 package akhil.alltrans
 
+import android.util.LruCache // Adicionado import
 import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
@@ -383,13 +384,10 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 Utils.debugLog("manageCache for ${context.packageName}: Cache is DISABLED. Clearing in-memory and disk cache.") // LOG MOVIDO/AJUSTADO
                 Alltrans.cacheAccess.acquireUninterruptibly()
                 try {
-                    // Limpa o cache em memória
-                    if (Alltrans.cache == null) {
-                        Alltrans.cache = HashMap()
-                    } else {
-                        Alltrans.cache?.clear()
-                    }
-                    Utils.debugLog("Caching is disabled for ${context.packageName}. In-memory cache cleared.") // LOG EXISTENTE
+                    // Limpa o cache em memória (agora LruCache)
+                    // O getter personalizado em Alltrans.kt garante que `Alltrans.cache` não seja nulo aqui.
+                    Alltrans.cache?.evictAll()
+                    Utils.debugLog("Caching is disabled for ${context.packageName}. In-memory LruCache evicted.")
 
                     // Excluir o arquivo de cache do disco também, pois o cache está desabilitado para este app.
                     val cacheFile = File(context.filesDir, "AllTransCache")
@@ -431,10 +429,9 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
             var ois: ObjectInputStream? = null
             var semaphoreAcquired = false
 
-            // Certifica-se de que o cache esteja inicializado mesmo antes de tentar ler
-            if (Alltrans.cache == null) {
-                Alltrans.cache = HashMap()
-            }
+            // O getter personalizado em Alltrans.kt garante que `Alltrans.cache` não seja nulo.
+            // A inicialização do LruCache (se ainda não ocorreu) acontecerá ao acessar Alltrans.cache
+            // pela primeira vez através do seu getter.
 
             try {
                 // Verifica se o arquivo tem tamanho válido antes de tentar ler
@@ -456,9 +453,10 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 Alltrans.cacheAccess.acquireUninterruptibly()
                 semaphoreAcquired = true
 
-                // Limpar o cache existente
+                // Limpar o cache existente (LruCache)
+                // O getter personalizado garante que cacheRef não seja nulo
                 val cacheRef = Alltrans.cache
-                cacheRef?.clear()
+                cacheRef?.evictAll()
 
                 try {
                     // Tenta criar o ObjectInputStream com verificação de validez
@@ -469,11 +467,33 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                     if (readObj is HashMap<*, *>) {
                         // Verificação de tipo antes do cast
                         @Suppress("UNCHECKED_CAST")
-                        val typedMap = readObj as HashMap<String?, String?>
-                        cacheRef?.putAll(typedMap)
-                        Utils.debugLog("Cache loaded successfully. Size: ${cacheRef?.size ?: 0}")
-                    } else {
-                        Utils.debugLog("Cache object is not of type HashMap<String?, String?>")
+                        val typedMap = readObj as HashMap<String, String> // Assume non-null keys/values from old format
+                        typedMap.forEach { (key, value) ->
+                            // LruCache não aceita chaves/valores nulos. Se o HashMap antigo pudesse ter,
+                            // seria necessário tratamento aqui. Assumindo que não para esta conversão.
+                            if (key != null && value != null) {
+                                cacheRef?.put(key, value)
+                            } else {
+                                Utils.debugLog("Skipping null key/value from disk cache: key=$key, value=$value")
+                            }
+                        }
+                        Utils.debugLog("Cache loaded successfully into LruCache. Size: ${cacheRef?.size() ?: 0}")
+                    } else if (readObj is LruCache<*,*>) {
+                        // Se o cache já estiver no formato LruCache (migrações futuras)
+                        @Suppress("UNCHECKED_CAST")
+                        val lruMap = readObj as LruCache<String, String>
+                        // Para LruCache, a maneira mais simples de "copiar" é iterar e colocar.
+                        // Ou, se a intenção é substituir, apenas atribuir (mas Alltrans.cache é val).
+                        // Dada a estrutura, vamos iterar e colocar.
+                        lruMap.snapshot().forEach { (key, value) ->
+                            if (key != null && value != null) {
+                                cacheRef?.put(key, value)
+                            }
+                        }
+                        Utils.debugLog("Cache loaded successfully from LruCache format. Size: ${cacheRef?.size() ?: 0}")
+                    }
+                    else {
+                        Utils.debugLog("Cache object is not of a recognized map type (HashMap or LruCache).")
                     }
                 } catch (e: ClassNotFoundException) {
                     Utils.debugLog("Cache format incompatible: ${e.message}")
@@ -771,8 +791,8 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                         Utils.debugLog("Disk cache file 'AllTransCache' not found for ${context.packageName}, no need to delete.")
                     }
 
-                    Alltrans.cache?.clear() // Limpa o cache em memória
-                    Utils.debugLog("In-memory cache cleared successfully due to local request for ${context.packageName}.")
+                    Alltrans.cache?.evictAll() // Limpa o cache em memória (LruCache)
+                    Utils.debugLog("In-memory LruCache evicted successfully due to local request for ${context.packageName}.")
 
                     // 2. ATUALIZAR o tempo da ÚLTIMA LIMPEZA EFETIVA para o timestamp do request atual
                     // Isso marca que a limpeza solicitada foi realizada.

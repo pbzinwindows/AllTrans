@@ -21,6 +21,7 @@ class GetTranslate : Callback {
     var stringsToBeTrans: List<String>? = null
     var callbackDataList: List<CallbackInfo>? = null
     private var translatedString: String? = null // For single translations
+    var pendingCompositeKey: Int? = null // Adicionado para gerenciamento de pendingTextViewTranslations
 
     // A assinatura DEVE corresponder exatamente à interface Callback
     override fun onResponse(call: Call, response: Response) {
@@ -148,9 +149,9 @@ class GetTranslate : Callback {
         try {
             Utils.debugLog("Putting in cache: [$original] -> [$translated]")
             Alltrans.Companion.cache?.let {
-                it[original] = translated // Only cache original -> translated mapping
+                it.put(original, translated) // Use .put() for LruCache
                 // Removed problematic line that cached translation as key for itself:
-                // it[translated] = translated // This was causing translation loops
+                // it.put(translated, translated) // This was causing translation loops
             } ?: Utils.debugLog("Cache object is null, cannot update cache.")
         } finally {
             if (Alltrans.Companion.cacheAccess.availablePermits() == 0) {
@@ -160,7 +161,13 @@ class GetTranslate : Callback {
     }
 
     private fun triggerSuccessCallback(translatedText: String, callbackInfo: CallbackInfo) {
-        val currentHashCode = callbackInfo.userData?.hashCode()
+        // Modificado para adicionar logging de aviso
+        val keyToRemoveFromPending = if (callbackInfo.pendingCompositeKey != null) {
+            callbackInfo.pendingCompositeKey
+        } else {
+            Utils.debugLog("AllTrans-GetTranslate: WARNING - callbackInfo.pendingCompositeKey is null in triggerSuccessCallback (batch). Falling back to userData.hashCode(). UserData: ${callbackInfo.userData}")
+            callbackInfo.userData?.hashCode()
+        }
         Handler(Looper.getMainLooper()).postDelayed({
             try {
                 if (callbackInfo.userData is TextView) {
@@ -180,9 +187,9 @@ class GetTranslate : Callback {
             } catch (e: Exception) {
                 Log.e("AllTrans", "Error in batch success callback for ${callbackInfo.originalString}", e)
             } finally {
-                currentHashCode?.let {
+                keyToRemoveFromPending?.let {
                     if (Alltrans.Companion.pendingTextViewTranslations.remove(it)) {
-                        Utils.debugLog("Removed item hash ($it) from pending set after batch onResponse.")
+                        Utils.debugLog("AllTrans-GetTranslate: Removed item hash ($it) from pending set after batch onResponse.")
                     }
                 }
             }
@@ -190,7 +197,13 @@ class GetTranslate : Callback {
     }
 
     private fun triggerSingleCallback(finalString: String, originalString: String?, currentLocalUserData: Any?, currentLocalOriginalCallable: OriginalCallable?, currentLocalCanCallOriginal: Boolean) {
-        val currentHashCode = currentLocalUserData?.hashCode()
+        // Modificado para adicionar logging de aviso
+        val keyToRemove = if (pendingCompositeKey != null) {
+            pendingCompositeKey
+        } else {
+            Utils.debugLog("AllTrans-GetTranslate: WARNING - pendingCompositeKey is null in triggerSingleCallback. Falling back to userData.hashCode(). UserData: $currentLocalUserData")
+            currentLocalUserData?.hashCode()
+        }
         Handler(Looper.getMainLooper()).postDelayed({
             try {
                 if (currentLocalUserData is TextView) {
@@ -209,9 +222,9 @@ class GetTranslate : Callback {
             } catch (e: Exception) {
                 Log.e("AllTrans", "Error in single item callback for $originalString", e)
             } finally {
-                currentHashCode?.let {
+                keyToRemove?.let {
                     if (Alltrans.Companion.pendingTextViewTranslations.remove(it)) {
-                        Utils.debugLog("Removed item hash ($it) from pending set after single onResponse.")
+                        Utils.debugLog("AllTrans-GetTranslate: Removed item hash ($it) from pending set after single onResponse.")
                     }
                 }
             }
@@ -221,7 +234,13 @@ class GetTranslate : Callback {
     private fun handleBatchFailure(callbacks: List<CallbackInfo>, reason: String) {
         Utils.debugLog("Handling batch failure: $reason")
         callbacks.forEach { cbInfo ->
-            val currentHashCode = cbInfo.userData?.hashCode()
+            // Modificado para adicionar logging de aviso
+            val keyToRemoveFromPending = if (cbInfo.pendingCompositeKey != null) {
+                cbInfo.pendingCompositeKey
+            } else {
+                Utils.debugLog("AllTrans-GetTranslate: WARNING - cbInfo.pendingCompositeKey is null in handleBatchFailure (batch). Falling back to userData.hashCode(). UserData: ${cbInfo.userData}")
+                cbInfo.userData?.hashCode()
+            }
             Handler(Looper.getMainLooper()).postDelayed({
                 try {
                     if (cbInfo.canCallOriginal && cbInfo.originalCallable != null) {
@@ -235,9 +254,9 @@ class GetTranslate : Callback {
                 } catch (t: Throwable) {
                     Log.e("AllTrans", "Error executing originalCallable on batch failure for ${cbInfo.originalString}", t)
                 } finally {
-                    currentHashCode?.let {
+                    keyToRemoveFromPending?.let {
                         if (Alltrans.Companion.pendingTextViewTranslations.remove(it)) {
-                            Utils.debugLog("Removed item hash ($it) from pending set after batch onFailure processing.")
+                            Utils.debugLog("AllTrans-GetTranslate: Removed item hash ($it) from pending set after batch onFailure processing.")
                         }
                     }
                 }
@@ -257,11 +276,17 @@ class GetTranslate : Callback {
         if (isBatchMicrosoft) {
             handleBatchFailure(callbackDataList!!, "Network Error: ${e.message}")
         } else { // Single translation failure
-            val currentHashCode = localUserDataForSingle?.hashCode()
+            // Modificado para adicionar logging de aviso
+            val keyToRemove = if (pendingCompositeKey != null) {
+                pendingCompositeKey
+            } else {
+                Utils.debugLog("AllTrans-GetTranslate: WARNING - pendingCompositeKey is null in single onFailure. Falling back to userData.hashCode(). UserData: $localUserDataForSingle")
+                localUserDataForSingle?.hashCode()
+            }
             Handler(Looper.getMainLooper()).postDelayed({
                 try {
                     if (localUserDataForSingle is TextView) {
-                        Utils.debugLog("Network failure for single TextView ($currentHashCode), original text remains.")
+                        Utils.debugLog("Network failure for single TextView ($keyToRemove), original text remains.")
                         // Text remains original, no action needed on TextView text itself
                     } else if (localCanCallOriginalForSingle && localOriginalCallableForSingle != null) {
                         Utils.debugLog("Calling originalCallable.callOriginalMethod on single failure for [$localOriginalStringForSingle]")
@@ -272,9 +297,9 @@ class GetTranslate : Callback {
                 } catch (t: Throwable) {
                     Log.e("AllTrans", "Error executing originalCallable on single failure for [$localOriginalStringForSingle]", t)
                 } finally {
-                    currentHashCode?.let {
+                    keyToRemove?.let {
                         if (Alltrans.Companion.pendingTextViewTranslations.remove(it)) {
-                            Utils.debugLog("Removed item hash ($it) from pending set after single onFailure.")
+                            Utils.debugLog("AllTrans-GetTranslate: Removed item hash ($it) from pending set after single onFailure.")
                         }
                     }
                 }

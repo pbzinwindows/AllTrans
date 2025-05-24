@@ -315,23 +315,35 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
             val userData = NotificationHookUserData(methodHookParam, text.toString())
 
             Alltrans.Companion.cacheAccess.acquireUninterruptibly()
+            var cacheHit = false
+            var translatedStringFromCache: String? = null
             try {
-                if (PreferenceList.Caching && Alltrans.Companion.cache != null && Alltrans.Companion.cache?.containsKey(stringArgs) == true) {
-                    val translatedString: String? = Alltrans.Companion.cache?.get(stringArgs)
-                    Utils.debugLog(
-                        "In Thread " + Thread.currentThread()
-                            .getId() + " found string in cache: " + stringArgs + " as " + translatedString
-                    )
-                    Alltrans.Companion.cacheAccess.release()
-                    callOriginalMethod(translatedString, userData)
-                    continue
-                } else {
-                    Alltrans.Companion.cacheAccess.release()
+                // Acessa o LruCache. O getter personalizado em Alltrans.kt garante que não seja nulo.
+                val cacheRef = Alltrans.cache
+                if (PreferenceList.Caching && cacheRef != null) {
+                    // LruCache.get(key) retorna null se a chave não for encontrada.
+                    // Isso substitui a necessidade de containsKey e depois get.
+                    translatedStringFromCache = cacheRef.get(stringArgs)
+                    if (translatedStringFromCache != null) {
+                        Utils.debugLog(
+                            "In Thread " + Thread.currentThread()
+                                .getId() + " found string in cache: " + stringArgs + " as " + translatedStringFromCache
+                        )
+                        cacheHit = true
+                    }
                 }
             } finally {
-                if (Alltrans.Companion.cacheAccess.availablePermits() == 0) {
-                    Alltrans.Companion.cacheAccess.release()
+                // Garante que o semáforo seja liberado apenas se foi adquirido e ainda não foi liberado.
+                // A verificação de availablePermits() == 0 pode não ser a mais robusta se o semáforo
+                // pudesse ser liberado em outro lugar dentro do try, mas para este padrão simples é ok.
+                if (Alltrans.cacheAccess.availablePermits() == 0) {
+                    Alltrans.cacheAccess.release()
                 }
+            }
+
+            if (cacheHit) {
+                callOriginalMethod(translatedStringFromCache, userData)
+                continue
             }
 
             val getTranslate = GetTranslate()

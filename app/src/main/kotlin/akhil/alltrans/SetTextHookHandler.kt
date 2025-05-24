@@ -121,8 +121,10 @@ class SetTextHookHandler : XC_MethodHook() {
         if (PreferenceList.Caching) {
             Alltrans.cacheAccess.acquireUninterruptibly()
             try {
-                val cacheRef = Alltrans.cache
-                if (cacheRef != null && cacheRef.containsKey(stringArgs) && stringArgs == cacheRef[stringArgs]) {
+                val cacheRef = Alltrans.cache // Accesses the LruCache via its getter
+                // LruCache.get(key) returns null if key is not found.
+                // So, checking if get(key) is non-null is equivalent to containsKey(key).
+                if (cacheRef != null && cacheRef.get(stringArgs) != null && stringArgs == cacheRef.get(stringArgs)) {
                     Utils.debugLog("$TAG: Skipping processing, text already appears translated and is identical: [" + stringArgs + "]")
                     alreadyTranslatedAndSame = true
                 }
@@ -157,9 +159,12 @@ class SetTextHookHandler : XC_MethodHook() {
 
         Alltrans.cacheAccess.acquireUninterruptibly()
         try {
-            val cacheRef = Alltrans.cache
-            if (PreferenceList.Caching && cacheRef != null && cacheRef.containsKey(stringArgs)) {
-                cachedTranslation = cacheRef[stringArgs]
+            val cacheRef = Alltrans.cache // Accesses the LruCache via its getter
+            // Check if caching is enabled and cacheRef is not null (getter ensures it's initialized)
+            if (PreferenceList.Caching && cacheRef != null) {
+                // LruCache.get(key) returns null if key is not found.
+                // This also effectively checks for key presence.
+                cachedTranslation = cacheRef.get(stringArgs)
                 if (cachedTranslation != null && cachedTranslation != stringArgs) {
                     Utils.debugLog("$TAG: Applying cached translation directly to args: [" + stringArgs + "] -> [" + cachedTranslation + "]")
                     modifyArgument(param, cachedTranslation)
@@ -179,7 +184,8 @@ class SetTextHookHandler : XC_MethodHook() {
                         text = stringArgs,
                         userData = textView,
                         originalCallable = null,
-                        canCallOriginal = false
+                        canCallOriginal = false,
+                        compositeKey = compositeKeyHash // Novo parâmetro
                     )
                     // pendingTextViewTranslations.add is handled by BatchTranslationManager for this case
                 } else {
@@ -194,6 +200,7 @@ class SetTextHookHandler : XC_MethodHook() {
                     getTranslate.stringToBeTrans = stringArgs
                     getTranslate.userData = textView
                     getTranslate.canCallOriginal = false
+                    getTranslate.pendingCompositeKey = compositeKeyHash // Adicionado
 
                     val getTranslateToken = GetTranslateToken()
                     getTranslateToken.getTranslate = getTranslate
@@ -246,6 +253,7 @@ class SetTextHookHandler : XC_MethodHook() {
         private val URL_LIKE_PATTERN: Pattern =
             Pattern.compile("^(http|https)://.*|[^\\s]+\\.[^\\s]+$")
         private val ACRONYM_LIKE_PATTERN: Pattern = Pattern.compile("^[A-Z0-9_\\-:]+$")
+        private val TIMESTAMP_PATTERN: Pattern = Pattern.compile("^\\d{1,2}:\\d{2}(:\\d{2})?$") // Para formatos como 00:07, 0:07, 00:07:15
 
         fun isNotWhiteSpace(abc: String?): Boolean {
             return !(abc == null || "" == abc) && !abc.matches("^\\s*$".toRegex())

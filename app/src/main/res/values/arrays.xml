@@ -49,6 +49,7 @@
     </string-array>
 
     <string-array name="languageCodesGoogle" translatable="false">
+        <item>auto</item> <!-- Adicionado -->
         <item>af</item>
         <item>ar</item>
         <item>be</item>
@@ -111,6 +112,7 @@
     </string-array>
 
     <string-array name="languageNamesGoogle" translatable="false">
+        <item>@string/Automatic_google</item> <!-- Adicionado -->
         <item>@string/Afrikaans_google</item>
         <item>@string/Arabic_google</item>
         <item>@string/Belarusian_google</item>

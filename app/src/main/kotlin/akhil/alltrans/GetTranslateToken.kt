@@ -284,15 +284,36 @@ internal class GetTranslateToken {
                             )
                         }
 
-                        val finalResult = result
+                        var finalResult = result
+                        var responseCode = 200
+                        var responseMessage = "OK (from Provider Query)"
+
+                        if (finalResult == GtransProvider.MLKIT_MODEL_UNAVAILABLE_ERROR) {
+                            Utils.debugLog("$TAG: ML Kit Model Unavailable Error received from GtransProvider for text: [$textToTranslate]")
+                            // Tenta obter o contexto para a mensagem de erro amigável
+                            val errorDisplayMessage = Alltrans.context?.getString(R.string.mlkit_model_unavailable_user_message) ?: "ML Kit translation model not downloaded. Please download it via Model Management."
+                            finalResult = errorDisplayMessage // Passa a mensagem amigável
+                            // Poderia usar um código de erro HTTP customizado ou uma flag no corpo da resposta
+                            // se o callback onResponse pudesse lidar com isso de forma mais estruturada.
+                            // Por agora, a mensagem de erro é passada como o texto traduzido.
+                            // O callback original não será chamado com este texto se userData for TextView,
+                            // pois GetTranslate.triggerSingleCallback verifica se finalString != originalString.
+                            // No entanto, para outros OriginalCallable, pode ser chamado.
+                            // Idealmente, onResponse teria um parâmetro isError ou um callback de erro separado.
+                            // Para este exercício, estamos priorizando a mensagem ao usuário.
+                            responseMessage = "ML Kit Model Unavailable" // Para logging ou diferenciação
+                            // Não altere responseCode para erro aqui, pois onResponse espera um sucesso para processar o corpo.
+                            // A lógica em GetTranslate.onResponse tratará isso como uma "tradução" (que é a mensagem de erro).
+                        }
+
                         val mockRequest =
                             Request.Builder().url("https://mock.google.translate.query").build()
                         val mockCall = OkHttpClient().newCall(mockRequest)
                         val response = Response.Builder()
                             .request(mockRequest)
-                            .code(200).message("OK (from Provider Query)")
+                            .code(responseCode).message(responseMessage)
                             .protocol(Protocol.HTTP_2)
-                            .body((finalResult ?: "").toResponseBody(null))
+                            .body((finalResult ?: textToTranslate ?: "").toResponseBody(null)) // Fallback para texto original se finalResult for nulo
                             .build()
 
                         Handler(Looper.getMainLooper()).post {
@@ -302,12 +323,14 @@ internal class GetTranslateToken {
                                 } catch (t: Throwable) {
                                     Log.e(
                                         TAG,
-                                        "Error executing getTranslate.onResponse in handler",
+                                        "Error executing getTranslate.onResponse in handler for text: [$textToTranslate]",
                                         t
                                     )
-                                    handleTranslationFailure("Error in onResponse callback handler", t)
+                                    // Para falhas no handler, ainda use handleTranslationFailure
+                                    // para garantir que o callback original seja chamado se aplicável.
+                                    handleTranslationFailure("Error in onResponse callback handler for text: [$textToTranslate]", t)
                                 }
-                            } ?: Log.w(TAG, "getTranslate became null before executing handler.")
+                            } ?: Log.w(TAG, "getTranslate became null before executing handler for text: [$textToTranslate].")
                         }
                     }
                 }

@@ -4,6 +4,7 @@ package akhil.alltrans
 import android.app.Application
 import android.util.Log
 import de.robv.android.xposed.XC_MethodHook
+import de.robv.android.xposed.XposedBridge // Adicionado import para XposedBridge
 
 // Importar Context
 internal class AppOnCreateHookHandler : XC_MethodHook() {
@@ -30,12 +31,9 @@ internal class AppOnCreateHookHandler : XC_MethodHook() {
                             // Verifica se as preferências já foram lidas para evitar duplicação
                             // (Pode ser necessário um flag estático adicional se isso causar problemas)
                             AttachBaseContextHookHandler.readPrefAndHook(appContext)
-                        } catch (e: Throwable) {
-                            Utils.debugLog(
-                                "Caught Exception calling readPrefAndHook from appOnCreate " + Log.getStackTraceString(
-                                    e
-                                )
-                            )
+                        } catch (e: Exception) { // Catch broader exception
+                            Utils.debugLog("AllTrans: Error calling readPrefAndHook from AppOnCreateHookHandler for package $packageName: " + e.message)
+                            XposedBridge.log(e) // Log the full exception for more details
                         }
                     } else {
                         Utils.debugLog("AllTrans: Skipping readPrefAndHook for own package $packageName in Application.onCreate.")
