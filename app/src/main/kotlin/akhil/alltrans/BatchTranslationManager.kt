@@ -24,6 +24,8 @@ import android.os.Looper
 import android.util.Log
 import java.util.Collections
 import java.util.LinkedList
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 data class BatchItem(
     val text: String,
@@ -31,11 +33,13 @@ data class BatchItem(
 )
 
 class BatchTranslationManager {
-
+    // Usando ReentrantLock para melhor controle sobre a sincronização
+    private val queueLock = ReentrantLock()
     private val queue: MutableList<BatchItem> = Collections.synchronizedList(LinkedList<BatchItem>())
     private var currentCharacterCount: Int = 0
     private val handler = Handler(Looper.getMainLooper())
     private val processRunnable = Runnable { processQueue() }
+    private var processingInProgress = false
 
     companion object {
         private const val TAG = "BatchTransManager"
@@ -44,11 +48,8 @@ class BatchTranslationManager {
         private const val BATCH_TIMEOUT_MS = 500L // Milliseconds
     }
 
-    fun addString(text: String, userData: Any?, originalCallable: OriginalCallable?, canCallOriginal: Boolean) {
+    fun addString(text: String, userData: Any?, originalCallable: OriginalCallable?, canCallOriginal: Boolean, compositeKey: Int = 0) {
         if (text.isEmpty()) {
-            // Optionally handle empty strings: either ignore or pass them through for individual error handling if needed
-            // For now, let's assume GetTranslate/GetTranslateToken will handle empty strings if they reach there.
-            // If we want to short-circuit here, we could call the callback immediately with the original empty string.
             Log.w(TAG, "addString called with empty text. Passing to original callable if possible.")
             if (originalCallable != null && canCallOriginal) {
                 try {
@@ -64,12 +65,27 @@ class BatchTranslationManager {
             userData = userData,
             originalCallable = originalCallable,
             canCallOriginal = canCallOriginal,
-            originalString = text
+            originalString = text,
+            pendingCompositeKey = compositeKey
         )
         val batchItem = BatchItem(text, callbackInfo)
 
+        // Verifica se a tradução já está pendente antes de adicionar
+        if (compositeKey != 0) {
+            synchronized(Alltrans.pendingTextViewTranslations) {
+                if (Alltrans.pendingTextViewTranslations.contains(compositeKey)) {
+                    Log.d(TAG, "Skipping batch addition for text with compositeKey=$compositeKey, already pending")
+                    return
+                }
+                // Adiciona à lista de pendentes se não estiver lá
+                Alltrans.pendingTextViewTranslations.add(compositeKey)
+                Log.d(TAG, "Added compositeKey=$compositeKey to pendingTextViewTranslations in BatchManager")
+            }
+        }
+
         var triggerProcessNow = false
-        synchronized(queue) {
+
+        queueLock.withLock {
             queue.add(batchItem)
             currentCharacterCount += text.length
             Log.d(TAG, "Added to queue: \"${text.take(50)}...\" Queue size: ${queue.size}, Chars: $currentCharacterCount")
@@ -80,147 +96,127 @@ class BatchTranslationManager {
             }
         }
 
-        // Always reset the timeout. If limits were hit, processQueue will clear the queue (or parts of it)
-        // and if items remain, a new timeout will be set by the next addString or this one.
-        handler.removeCallbacks(processRunnable) // Remove existing timeout
-        if (triggerProcessNow) {
-            // Process immediately if limits are hit
-            // Potentially run on a different thread if processQueue is very heavy,
-            // but it mainly creates objects and calls doAll which is async.
-            processQueue(forceDispatch = true)
-        } else if (queue.isNotEmpty()) {
-            // If not processing now but queue has items, set/reset timeout
-            Log.d(TAG, "Setting/resetting batch timeout: $BATCH_TIMEOUT_MS ms")
-            handler.postDelayed(processRunnable, BATCH_TIMEOUT_MS)
+        // Gerenciamento do timeout e processamento
+        queueLock.withLock {
+            handler.removeCallbacks(processRunnable) // Remove existing timeout
+
+            if (triggerProcessNow) {
+                // Se já estiver processando, não inicie outro processamento
+                if (!processingInProgress) {
+                    processingInProgress = true
+                    // Process immediately if limits are hit
+                    handler.post { processQueue(forceDispatch = true) }
+                }
+            } else if (queue.isNotEmpty()) {
+                // Se não estiver processando agora, agende um novo timeout
+                Log.d(TAG, "Setting/resetting batch timeout: $BATCH_TIMEOUT_MS ms")
+                handler.postDelayed(processRunnable, BATCH_TIMEOUT_MS)
+            }
         }
     }
 
     private fun processQueue(forceDispatch: Boolean = false) {
-        handler.removeCallbacks(processRunnable) // Processing now, so remove any pending timeout
+        queueLock.withLock {
+            processingInProgress = true
+            handler.removeCallbacks(processRunnable) // Processing now, so remove any pending timeout
+        }
+
         Log.i(TAG, "processQueue called. Force dispatch: $forceDispatch, Current queue size: ${queue.size}, Chars: $currentCharacterCount")
 
         // Loop to process multiple batches if the queue exceeds limits multiple times
-        while (queue.isNotEmpty()) {
+        var continueProcessing = true
+        while (continueProcessing) {
             val currentBatchItems = mutableListOf<BatchItem>()
             val currentBatchStrings = mutableListOf<String>()
             val currentBatchCallbacks = mutableListOf<CallbackInfo>()
             var batchCharCount = 0
+            var hasMoreItems = false
 
-            synchronized(queue) {
-                // Peek and decide which items go into this specific sub-batch
-                // This section is a bit conceptual for peeking without removal yet,
-                // the actual removal happens in the loop below.
-                // The main goal is to decide how many items to take for the current sub-batch.
-                var potentialItemCount = 0
-                var potentialCharCount = 0
-                for (item in queue) {
-                    if (potentialItemCount < MAX_STRINGS_PER_BATCH && (potentialCharCount + item.text.length) <= MAX_CHARS_PER_BATCH) {
-                        potentialItemCount++
-                        potentialCharCount += item.text.length
+            // Extrair informações da fila sob o lock
+            queueLock.withLock {
+                // Caso especial: Se a fila estiver vazia, não há nada para processar
+                if (queue.isEmpty()) {
+                    processingInProgress = false
+                    // Em vez de usar break, definimos a flag para sair do loop
+                    continueProcessing = false
+                    return@withLock
+                }
+
+                // Determinar quantos itens podem ser incluídos neste lote
+                val itemsToProcess = minOf(MAX_STRINGS_PER_BATCH, queue.size)
+                var charCounter = 0
+                var itemCounter = 0
+
+                // Primeiro, verifique quantos itens podem ser incluídos neste lote
+                for (i in 0 until itemsToProcess) {
+                    val nextItemSize = queue[i].text.length
+                    if (charCounter + nextItemSize <= MAX_CHARS_PER_BATCH) {
+                        charCounter += nextItemSize
+                        itemCounter++
                     } else {
                         break
                     }
                 }
 
+                // Se nenhum item couber no lote (um único item muito grande), pegue pelo menos um item
+                if (itemCounter == 0 && queue.isNotEmpty()) {
+                    itemCounter = 1
+                }
 
-                // Now, build the batch from the items that fit (or all if queue is smaller than limits)
-                // This loop effectively takes items from the front of the queue.
-                var itemsTakenForCurrentBatch = 0
-                while (itemsTakenForCurrentBatch < potentialItemCount && queue.isNotEmpty()) {
-                    // Check limits again before taking item, as queue might have changed by other threads
-                    // if not fully synchronized for the entire processQueue method (which it isn't, only queue ops are).
-                    // However, the outer `synchronized(queue)` for sub-batch formation should make this safe.
-                    val item = queue.first() // Get item from front
-
-                    // This check is effectively done by `potentialItemCount` and `potentialCharCount` logic above
-                    // if (currentBatchItems.size < MAX_STRINGS_PER_BATCH && (batchCharCount + item.text.length) <= MAX_CHARS_PER_BATCH) {
-
-                    // No, the above logic was just for peeking. We need to build the current batch from the queue.
-                    // The following is the corrected logic for building the current batch.
-                    // The initial peeking loop was removed as it was redundant with the actual batch formation loop.
-
-                    // Corrected logic for building the current batch:
-                    if (currentBatchItems.size < MAX_STRINGS_PER_BATCH && (batchCharCount + queue.first().text.length) <= MAX_CHARS_PER_BATCH) {
-                        val actualItem = queue.removeAt(0) // Take from front
-                        currentBatchItems.add(actualItem)
-                        currentBatchStrings.add(actualItem.text)
-                        currentBatchCallbacks.add(actualItem.callbackInfo)
-                        batchCharCount += actualItem.text.length
-                        currentCharacterCount -= actualItem.text.length // Update total count
-                    } else {
-                        break // Current sub-batch is full or next item exceeds char limit
+                // Agora extraia os itens da fila para o lote atual
+                repeat(itemCounter) {
+                    if (queue.isNotEmpty()) {
+                        val item = queue.removeAt(0)
+                        currentBatchItems.add(item)
+                        currentBatchStrings.add(item.text)
+                        currentBatchCallbacks.add(item.callbackInfo)
+                        batchCharCount += item.text.length
+                        currentCharacterCount -= item.text.length
                     }
-                    itemsTakenForCurrentBatch++ // Count items actually moved to current batch
                 }
 
-
-                if (itemsTakenForCurrentBatch > 0) {
-                    Log.i(TAG, "Formed batch with ${currentBatchItems.size} items, $batchCharCount chars. Remaining queue: ${queue.size}, Total Chars: $currentCharacterCount")
-                }
-            } // End synchronized block for queue modification
+                hasMoreItems = queue.isNotEmpty()
+            }
 
             if (currentBatchItems.isNotEmpty()) {
                 Log.i(TAG, "Dispatching batch of ${currentBatchStrings.size} strings, $batchCharCount chars.")
 
-                // Mark items as pending BEFORE dispatching
-                currentBatchCallbacks.forEach { cbInfo ->
-                    cbInfo.userData?.hashCode()?.let { hash ->
-                        // Alltrans.pendingTextViewTranslations is a synchronizedSet, so direct add is okay.
-                        val added = Alltrans.pendingTextViewTranslations.add(hash)
-                        if (added) {
-                            Utils.debugLog("$TAG: Added hash $hash (text: '${cbInfo.originalString?.take(30)}...') to pendingTextViewTranslations for batch dispatch.")
-                        } else {
-                            Utils.debugLog("$TAG: Hash $hash (text: '${cbInfo.originalString?.take(30)}...') was already in pendingTextViewTranslations (before batch dispatch).")
-                        }
-                    }
-                }
-
                 val getTranslate = GetTranslate().apply {
                     this.stringsToBeTrans = currentBatchStrings
                     this.callbackDataList = currentBatchCallbacks
-                    // languageToTranslate and sourceLanguage will be picked from PreferenceList inside GetTranslate/GetTranslateToken
+                    // Não precisamos passar pendingCompositeKey aqui porque cada item em callbackDataList
+                    // já tem seu próprio pendingCompositeKey
                 }
 
-                // GetTranslateToken is designed to be a new instance each time.
                 val getTranslateToken = GetTranslateToken().apply {
                     this.getTranslate = getTranslate
                 }
                 getTranslateToken.doAll() // This will eventually call getTranslate.onResponse or .onFailure
-
-            } else if (queue.isNotEmpty()) { // currentBatchItems is empty but queue is not
-                // This case implies the very first item in the queue was too large by itself.
-                // This shouldn't happen if addString checks string length against MAX_CHARS_PER_BATCH,
-                // or if MAX_CHARS_PER_BATCH is significantly larger than any single reasonable string.
-                // For now, log it. A more robust solution might be to translate such items individually.
-                Log.e(TAG, "processQueue: Next item in queue (text: '${queue.first().text.take(100)}...') is too large for any batch or an error occurred. Size: ${queue.first().text.length}. This item might get stuck if not handled.")
-                // To prevent getting stuck, we could try to process it as a single item here,
-                // or simply remove it and call its original callback with original text.
-                // For now, let's break to avoid potential infinite loops if not `forceDispatch`.
-                // If `forceDispatch` is true, this could lead to removing it without translation.
-                if (!forceDispatch) break
             }
 
-
-            // If not forced, and queue still has items, it means the timeout processed a part of it.
-            // The remaining items will be processed by the next timeout.
-            if (!forceDispatch && queue.isNotEmpty()) {
-                Log.d(TAG, "Queue still has ${queue.size} items after partial processing. Timeout will be rescheduled by next addString or if this was the timeout run.")
-                // Ensure timeout is active if queue is not empty.
-                // This is important if processQueue was called by timeout and only processed a part.
-                handler.postDelayed(processRunnable, BATCH_TIMEOUT_MS)
-                break
+            // Se não há mais itens ou não estamos forçando o despacho, saia do loop
+            if (!hasMoreItems || (!forceDispatch && currentBatchItems.isNotEmpty())) {
+                continueProcessing = false
             }
-        } // End while (queue.isNotEmpty())
+        }
 
-        if (queue.isEmpty()) {
-            Log.i(TAG, "Queue processed. Now empty.")
-            currentCharacterCount = 0 // Defensive reset
-        } else if (forceDispatch) {
-            Log.i(TAG, "Queue processed with forceDispatch. Remaining: ${queue.size}. New timeout will be set by addString if needed.")
-            // If queue is not empty even after force dispatch (e.g. an item was too large and skipped),
-            // ensure a timeout is set to re-evaluate.
-            if (queue.isNotEmpty()) {
-                handler.postDelayed(processRunnable, BATCH_TIMEOUT_MS)
+        queueLock.withLock {
+            if (queue.isEmpty()) {
+                Log.i(TAG, "Queue processed. Now empty.")
+                currentCharacterCount = 0 // Defensive reset
+                processingInProgress = false
+            } else {
+                Log.i(TAG, "Queue partially processed. Remaining: ${queue.size} items, ${currentCharacterCount} chars.")
+
+                // Se ainda houver itens na fila, agende um novo processamento
+                if (!handler.hasCallbacks(processRunnable)) {
+                    handler.postDelayed(processRunnable, BATCH_TIMEOUT_MS)
+                }
+
+                // Só marque como não processando se não for um despacho forçado
+                if (!forceDispatch) {
+                    processingInProgress = false
+                }
             }
         }
     }

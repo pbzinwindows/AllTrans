@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package akhil.alltrans
 
 import android.annotation.SuppressLint
@@ -44,7 +42,7 @@ class SetTextHookHandler : XC_MethodHook() {
                     textToSet = StringBuffer(textToSet.toString())
                 } else if (argType == StringBuilder::class.java) {
                     textToSet = StringBuilder(textToSet.toString())
-                } else if (param.args[0] is CharSequence) {
+                } else if (argType == CharSequence::class.java || param.args[0] is CharSequence) {
                     textToSet = SpannableStringBuilder(textToSet.toString())
                 } else {
                     Log.w(
@@ -107,13 +105,18 @@ class SetTextHookHandler : XC_MethodHook() {
         }
 
         val textViewHashCode = textView.hashCode()
-        // Create composite key that includes both TextView and text content
+        // Create consistent composite key that includes both TextView and text content
         val compositeKeyHash = "$textViewHashCode:${stringArgs.hashCode()}".hashCode()
 
         // Check if already pending using the composite key
-        if (Alltrans.pendingTextViewTranslations.contains(compositeKeyHash)) {
-            Utils.debugLog("$TAG: Skipping translation for [" + stringArgs + "], already pending for composite key ($compositeKeyHash)")
-            return // Let original setText proceed, new text will be set by pending callback if different
+        synchronized(Alltrans.pendingTextViewTranslations) {
+            if (Alltrans.pendingTextViewTranslations.contains(compositeKeyHash)) {
+                Utils.debugLog("$TAG: Skipping translation for [" + stringArgs + "], already pending for composite key ($compositeKeyHash)")
+                return // Let original setText proceed, new text will be set by pending callback if different
+            }
+            // Add to pending set BEFORE dispatching translation request to prevent race conditions
+            Alltrans.pendingTextViewTranslations.add(compositeKeyHash)
+            Utils.debugLog("$TAG: Added composite key ($compositeKeyHash) to pending set.")
         }
 
         // Otimização: Verificar se já está traduzido (e is the same as current text)
@@ -121,8 +124,10 @@ class SetTextHookHandler : XC_MethodHook() {
         if (PreferenceList.Caching) {
             Alltrans.cacheAccess.acquireUninterruptibly()
             try {
-                val cacheRef = Alltrans.cache
-                if (cacheRef != null && cacheRef.containsKey(stringArgs) && stringArgs == cacheRef[stringArgs]) {
+                val cacheRef = Alltrans.cache // Accesses the LruCache via its getter
+                // LruCache.get(key) returns null if key is not found.
+                // So, checking if get(key) is non-null is equivalent to containsKey(key).
+                if (cacheRef != null && cacheRef.get(stringArgs) != null && stringArgs == cacheRef.get(stringArgs)) {
                     Utils.debugLog("$TAG: Skipping processing, text already appears translated and is identical: [" + stringArgs + "]")
                     alreadyTranslatedAndSame = true
                 }
@@ -133,20 +138,40 @@ class SetTextHookHandler : XC_MethodHook() {
             }
         }
         if (alreadyTranslatedAndSame) {
+            // Remover da lista de pendentes já que não precisa traduzir
+            synchronized(Alltrans.pendingTextViewTranslations) {
+                Alltrans.pendingTextViewTranslations.remove(compositeKeyHash)
+                Utils.debugLog("$TAG: Removed composite key ($compositeKeyHash) from pending set as text already appears translated.")
+            }
             return // Let original setText proceed
         }
 
         // Pular Numéricos, URLs e Acrônimos
         if (NUMERIC_PATTERN.matcher(stringArgs).matches()) {
             Utils.debugLog("$TAG: Skipping translation for numeric string: [" + stringArgs + "]")
+            // Remover da lista de pendentes já que não vai traduzir
+            synchronized(Alltrans.pendingTextViewTranslations) {
+                Alltrans.pendingTextViewTranslations.remove(compositeKeyHash)
+                Utils.debugLog("$TAG: Removed composite key ($compositeKeyHash) from pending set as text is numeric.")
+            }
             return
         }
         if (stringArgs.length > 3 && URL_LIKE_PATTERN.matcher(stringArgs).matches() && !stringArgs.contains(" ")) {
             Utils.debugLog("$TAG: Skipping translation for URL-like string: [" + stringArgs + "]")
+            // Remover da lista de pendentes já que não vai traduzir
+            synchronized(Alltrans.pendingTextViewTranslations) {
+                Alltrans.pendingTextViewTranslations.remove(compositeKeyHash)
+                Utils.debugLog("$TAG: Removed composite key ($compositeKeyHash) from pending set as text is URL-like.")
+            }
             return
         }
         if (stringArgs.length < 5 && ACRONYM_LIKE_PATTERN.matcher(stringArgs).matches()) {
             Utils.debugLog("$TAG: Skipping translation for likely acronym/code: [" + stringArgs + "]")
+            // Remover da lista de pendentes já que não vai traduzir
+            synchronized(Alltrans.pendingTextViewTranslations) {
+                Alltrans.pendingTextViewTranslations.remove(compositeKeyHash)
+                Utils.debugLog("$TAG: Removed composite key ($compositeKeyHash) from pending set as text is acronym-like.")
+            }
             return
         }
 
@@ -157,9 +182,12 @@ class SetTextHookHandler : XC_MethodHook() {
 
         Alltrans.cacheAccess.acquireUninterruptibly()
         try {
-            val cacheRef = Alltrans.cache
-            if (PreferenceList.Caching && cacheRef != null && cacheRef.containsKey(stringArgs)) {
-                cachedTranslation = cacheRef[stringArgs]
+            val cacheRef = Alltrans.cache // Accesses the LruCache via its getter
+            // Check if caching is enabled and cacheRef is not null (getter ensures it's initialized)
+            if (PreferenceList.Caching && cacheRef != null) {
+                // LruCache.get(key) returns null if key is not found.
+                // This also effectively checks for key presence.
+                cachedTranslation = cacheRef.get(stringArgs)
                 if (cachedTranslation != null && cachedTranslation != stringArgs) {
                     Utils.debugLog("$TAG: Applying cached translation directly to args: [" + stringArgs + "] -> [" + cachedTranslation + "]")
                     modifyArgument(param, cachedTranslation)
@@ -169,7 +197,7 @@ class SetTextHookHandler : XC_MethodHook() {
                 }
             }
 
-            if (cachedTranslation == null && !Alltrans.pendingTextViewTranslations.contains(compositeKeyHash)) {
+            if (cachedTranslation == null) {
                 Utils.debugLog("$TAG: String not cached or invalid/same in cache. Requesting fresh translation for: [" + stringArgs + "] for composite key ($compositeKeyHash)")
                 translationRequested = true
 
@@ -179,25 +207,30 @@ class SetTextHookHandler : XC_MethodHook() {
                         text = stringArgs,
                         userData = textView,
                         originalCallable = null,
-                        canCallOriginal = false
+                        canCallOriginal = false,
+                        compositeKey = compositeKeyHash
                     )
-                    // pendingTextViewTranslations.add is handled by BatchTranslationManager for this case
+                    // A chave já foi adicionada em pendingTextViewTranslations acima
                 } else {
                     // Direct translation for non-Microsoft providers OR if MS batching is disabled for this app
                     val reason = if (PreferenceList.TranslatorProvider == "m") "(MS batching disabled)" else "(non-MS provider)"
                     Utils.debugLog("$TAG: Using direct translation $reason for composite key: $compositeKeyHash, Text: \"${stringArgs.take(50)}...\"")
 
-                    Alltrans.pendingTextViewTranslations.add(compositeKeyHash)
-                    Utils.debugLog("$TAG: Added composite key ($compositeKeyHash) to pending set for direct translation.")
-
                     val getTranslate = GetTranslate()
                     getTranslate.stringToBeTrans = stringArgs
                     getTranslate.userData = textView
                     getTranslate.canCallOriginal = false
+                    getTranslate.pendingCompositeKey = compositeKeyHash // Fornecendo a composite key para o callback
 
                     val getTranslateToken = GetTranslateToken()
                     getTranslateToken.getTranslate = getTranslate
                     getTranslateToken.doAll()
+                }
+            } else {
+                // Se uma tradução em cache foi aplicada, remova da lista de pendentes
+                synchronized(Alltrans.pendingTextViewTranslations) {
+                    Alltrans.pendingTextViewTranslations.remove(compositeKeyHash)
+                    Utils.debugLog("$TAG: Removed composite key ($compositeKeyHash) from pending set after applying cached translation.")
                 }
             }
         } finally {
@@ -246,6 +279,7 @@ class SetTextHookHandler : XC_MethodHook() {
         private val URL_LIKE_PATTERN: Pattern =
             Pattern.compile("^(http|https)://.*|[^\\s]+\\.[^\\s]+$")
         private val ACRONYM_LIKE_PATTERN: Pattern = Pattern.compile("^[A-Z0-9_\\-:]+$")
+        private val TIMESTAMP_PATTERN: Pattern = Pattern.compile("^\\d{1,2}:\\d{2}(:\\d{2})?$") // Para formatos como 00:07, 0:07, 00:07:15
 
         fun isNotWhiteSpace(abc: String?): Boolean {
             return !(abc == null || "" == abc) && !abc.matches("^\\s*$".toRegex())

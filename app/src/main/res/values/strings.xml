@@ -21,6 +21,8 @@
     <integer name="default_delay">0</integer>
     <integer name="default_delay_webview">500</integer>
 
+    <string name="mlkit_model_unavailable_user_message">Modelo de tradução não encontrado. Por favor, baixe-o na seção de Gerenciamento de Modelos.</string>
+
     <string name="search">Search</string>
     <string name="rate_now">Avaliar Agora</string>
     <string name="later">Mais Tarde</string>
@@ -181,6 +183,7 @@
     <string name="clear_cache_provider">Cache limpo devido à mudança de provedor</string>
 
     <!--- Google Language Names -->
+    <string name="Automatic_google">Automático (Google)</string>
     <string name="Afrikaans_google">"Afrikaans"</string>
     <string name="Arabic_google">"Arabic"</string>
     <string name="Belarusian_google">"Belarusian"</string>

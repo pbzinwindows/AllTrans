@@ -202,9 +202,10 @@ class DrawTextHookHandler : XC_MethodReplacement(), OriginalCallable {
         methodHookParam: MethodHookParam,
         args: Array<Any?>
     ) {
-        val hookAccess = Alltrans.hookAccess ?: return
+        // Substituído Alltrans.hookAccess por Alltrans.cacheAccess
+        val currentCacheAccess = Alltrans.cacheAccess ?: return
 
-        hookAccess.acquireUninterruptibly()
+        currentCacheAccess.acquireUninterruptibly()
         try {
             val currentHook = Alltrans.drawTextHook
             val restoreHook = createRestoreHook(method, currentHook)
@@ -218,7 +219,7 @@ class DrawTextHookHandler : XC_MethodReplacement(), OriginalCallable {
             Utils.debugLog("$TAG: Erro ao invocar método: ${e.message}")
             logMethodError(e, args)
         } finally {
-            hookAccess.release()
+            currentCacheAccess.release()
         }
     }
 
@@ -286,8 +287,23 @@ class DrawTextHookHandler : XC_MethodReplacement(), OriginalCallable {
     private fun handleTranslation(text: String, methodHookParam: MethodHookParam): Any? {
         Utils.debugLog("$TAG: Thread ${Thread.currentThread().id} - Texto não-inglês: $text")
 
+        // Gerar uma chave de composição única para esta tradução de drawText
+        val compositeKey = text.hashCode()
+
+        // Verificar se esta tradução já está em andamento
+        synchronized(Alltrans.pendingTextViewTranslations) {
+            if (Alltrans.pendingTextViewTranslations.contains(compositeKey)) {
+                Utils.debugLog("$TAG: Skipping translation for [$text], already pending with key ($compositeKey)")
+                callOriginalMethod(text, methodHookParam)
+                return null
+            }
+            // Adicionar à lista de pendentes
+            Alltrans.pendingTextViewTranslations.add(compositeKey)
+            Utils.debugLog("$TAG: Added composite key ($compositeKey) to pending set for DrawText.")
+        }
+
         // Verificar cache primeiro
-        if (tryGetFromCache(text, methodHookParam)) {
+        if (tryGetFromCache(text, methodHookParam, compositeKey)) {
             return null
         }
 
@@ -297,6 +313,7 @@ class DrawTextHookHandler : XC_MethodReplacement(), OriginalCallable {
             originalCallable = this@DrawTextHookHandler
             userData = methodHookParam
             canCallOriginal = false
+            pendingCompositeKey = compositeKey
         }
 
         GetTranslateToken().apply {
@@ -306,28 +323,51 @@ class DrawTextHookHandler : XC_MethodReplacement(), OriginalCallable {
         return null
     }
 
-    private fun tryGetFromCache(text: String, methodHookParam: MethodHookParam): Boolean {
-        if (!PreferenceList.Caching || Alltrans.cache == null) {
+    private fun tryGetFromCache(text: String, methodHookParam: MethodHookParam, compositeKey: Int): Boolean {
+        // O getter personalizado em Alltrans.kt garante que Alltrans.cache não seja nulo se o caching estiver habilitado.
+        // No entanto, ainda é uma boa prática verificar PreferenceList.Caching primeiro.
+        if (!PreferenceList.Caching) {
+            Utils.debugLog("$TAG: Caching is disabled. Calling original method for text: [$text]")
             callOriginalMethod(text, methodHookParam)
-            return false
+            return false // Indica que não foi encontrado/usado do cache
         }
 
-        val cacheAccess = Alltrans.cacheAccess ?: return false
+        var cachedTranslation: String? = null
+        var cacheHit = false
 
-        cacheAccess.acquireUninterruptibly()
-        return try {
-            val cachedTranslation = Alltrans.cache?.get(text)
+        // Acessar o cache de forma segura usando o semáforo
+        Alltrans.cacheAccess.acquireUninterruptibly()
+        try {
+            // O getter de Alltrans.cache garante que não seja nulo aqui se foi acessado antes (o que é provável)
+            // ou o inicializará.
+            cachedTranslation = Alltrans.cache?.get(text)
+
             if (cachedTranslation != null) {
-                Utils.debugLog("$TAG: Thread ${Thread.currentThread().id} - Encontrado no cache: $text -> $cachedTranslation")
+                Utils.debugLog("$TAG: Thread ${Thread.currentThread().id} - Encontrado no cache: [$text] -> [$cachedTranslation]")
+                // Remover da lista de pendentes já que a tradução está concluída
+                synchronized(Alltrans.pendingTextViewTranslations) {
+                    Alltrans.pendingTextViewTranslations.remove(compositeKey)
+                    Utils.debugLog("$TAG: Removed composite key ($compositeKey) from pending set after cache hit.")
+                }
+                // Chamar o método original com o texto traduzido do cache
                 callOriginalMethod(cachedTranslation, methodHookParam)
-                true
+                cacheHit = true
             } else {
-                callOriginalMethod(text, methodHookParam)
-                false
+                Utils.debugLog("$TAG: Thread ${Thread.currentThread().id} - Não encontrado no cache: [$text]")
+                // Se não estiver no cache, o método original será chamado com o texto original
+                // Isso já é feito implicitamente se cacheHit permanecer false, mas para clareza:
+                // callOriginalMethod(text, methodHookParam) // Esta linha é redundante se cacheHit=false leva a isso
             }
         } finally {
-            cacheAccess.release()
+            Alltrans.cacheAccess.release()
         }
+
+        // Se não houve hit no cache, significa que a tradução não estava lá.
+        // O método original precisa ser chamado com o texto original para que a tradução seja solicitada.
+        if (!cacheHit) {
+            callOriginalMethod(text, methodHookParam)
+        }
+        return cacheHit // Retorna true se o cache foi usado, false caso contrário
     }
 
     // Métodos de logging

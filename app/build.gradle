@@ -1,14 +1,27 @@
-// Apply plugins at the top
-apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
+// app/build.gradle
+
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    // Se você usa Firebase ou outros serviços que requerem plugins, adicione-os aqui. Por exemplo:
+    // id 'com.google.gms.google-services'
+    // id 'com.google.firebase.crashlytics'
+}
+
+// A definição de ext.kotlin_version é feita no build.gradle (nível do projeto/raiz)
+// e é automaticamente acessível aqui. Não precisa redefini-la.
 
 android {
     signingConfigs {
         publish {
-            storeFile file(RELEASE_STORE_FILE)
-            storePassword RELEASE_STORE_PASSWORD
-            keyAlias RELEASE_KEY_ALIAS
-            keyPassword RELEASE_KEY_PASSWORD
+            // Recomenda-se ler propriedades do gradle.properties para segurança
+            storeFile file(project.property("RELEASE_STORE_FILE"))
+            storePassword project.property("RELEASE_STORE_PASSWORD")
+            keyAlias project.property("RELEASE_KEY_ALIAS")
+            keyPassword project.property("RELEASE_KEY_PASSWORD")
+            // Se as variáveis RELEASE_STORE_FILE etc., não estiverem no gradle.properties,
+            // e sim definidas de outra forma globalmente no Gradle, file(RELEASE_STORE_FILE) pode funcionar.
+            // Mas project.property("...") é mais robusto para gradle.properties.
         }
     }
     compileSdk 35
@@ -21,78 +34,94 @@ android {
         versionCode 196
         versionName "1.9.6"
         multiDexEnabled true
-        signingConfig signingConfigs.publish
+        // signingConfig signingConfigs.publish // Geralmente, não se define signingConfig no defaultConfig.
+        // Ele é aplicado nos buildTypes.
     }
 
     buildTypes {
         debug {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Builds de debug são geralmente assinados com o keystore de debug padrão.
         }
         release {
-            minifyEnabled true // Habilitado para release para reduzir tamanho do APK
+            minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.publish // Assina o release build com a config 'publish'
         }
     }
 
+    // Configurações de compatibilidade Java (para o compilador Java)
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = '1.8'
-    }
-
-    // Habilitar ViewBinding (recomendado)
     buildFeatures {
         viewBinding true
     }
+
+    packagingOptions {
+        resources {
+            excludes += '/META-INF/{AL2.0,LGPL2.1}'
+        }
+    }
+    // A segunda declaração do bloco android foi removida, pois seu conteúdo (kotlinOptions)
+    // foi movido ou tornado obsoleto.
 }
 
-repositories {
-    google()
-    mavenCentral()
+// Configuração do Kotlin (Nível do Módulo, mas fora do bloco android)
+kotlin {
+    jvmToolchain(17) // Especifica a versão do JDK para a toolchain do Kotlin (para jvmTarget)
+
+    compilerOptions {
+        // languageVersion e apiVersion são geralmente inferidas da versão do plugin Kotlin
+        // (ext.kotlin_version definida no build.gradle raiz).
+        // Se precisar defini-las explicitamente (raramente necessário):
+        // languageVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_2)
+        // apiVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_2)
+
+        // Nova forma de definir freeCompilerArgs
+        freeCompilerArgs.addAll(
+                "-opt-in=kotlin.RequiresOptIn",
+                "-Xjvm-default=all"
+        )
+    }
 }
+
+// Repositórios já estão definidos no build.gradle (raiz) via allprojects { ... }
+// A menos que você tenha repositórios específicos apenas para este módulo.
+// repositories {
+//     google()
+//     mavenCentral()
+// }
 
 dependencies {
-    // Kotlin e Core
-    implementation 'androidx.core:core-ktx:1.16.0'
-    compileOnly 'de.robv.android.xposed:api:82'
+    // A versão do Kotlin é herdada do ext.kotlin_version do build.gradle (raiz)
+    implementation "org.jetbrains.kotlin:kotlin-stdlib"
+    // implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8" // Geralmente incluído por kotlin-stdlib
+    implementation 'androidx.core:core-ktx:1.16.0' // Considere verificar por versões mais recentes
 
-    // Network e JSON
+    // Adicione suas outras dependências aqui, por exemplo:
+    compileOnly 'de.robv.android.xposed:api:82'
     implementation 'com.google.code.gson:gson:2.13.1'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
-
-    // UI Components
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
-
-    // SwipeRefreshLayout (para corrigir o erro do ModelManagerFragment)
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
-
-    // RecyclerView
     implementation 'androidx.recyclerview:recyclerview:1.4.0'
-
-    // Preferences
     implementation 'androidx.preference:preference-ktx:1.2.1'
-
-    // ML Kit - Versões estáveis e corretas
     implementation 'com.google.mlkit:translate:17.0.3'
-    implementation 'com.google.android.gms:play-services-mlkit-language-id:17.0.0'
-
-    // Lifecycle & Coroutines
+    implementation 'com.google.mlkit:language-id:17.0.6'
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.9.0'
     implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.0'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
-
-    // Fragment KTX (para usar fragmentos de forma mais moderna)
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2'
     implementation 'androidx.fragment:fragment-ktx:1.8.7'
-
-    // Activity KTX
     implementation 'androidx.activity:activity-ktx:1.10.1'
 }
+
 
 // Suas tasks customizadas (mantidas como estão)
 afterEvaluate {

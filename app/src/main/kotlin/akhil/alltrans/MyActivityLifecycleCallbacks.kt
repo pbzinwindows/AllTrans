@@ -1,6 +1,8 @@
 package akhil.alltrans
 
 import android.app.Activity
+import kotlin.text.isNotEmpty // Adicionado import
+import kotlin.text.isNullOrEmpty // Adicionado import
 import android.app.Application.ActivityLifecycleCallbacks
 import android.os.Bundle
 import android.util.Log
@@ -19,7 +21,7 @@ internal class MyActivityLifecycleCallbacks : ActivityLifecycleCallbacks {
     override fun onActivityStopped(activity: Activity) {}
 
     override fun onActivityDestroyed(activity: Activity) {
-        if (PreferenceList.Caching && Alltrans.cache?.isNotEmpty() == true) {
+        if (PreferenceList.Caching && (Alltrans.cache?.size() ?: 0) > 0) {
             val appContext = activity.applicationContext
             if (appContext == null) {
                 Utils.debugLog("onActivityDestroyed: ApplicationContext is null for ${activity.componentName?.className}. Cannot save cache.")
@@ -34,12 +36,16 @@ internal class MyActivityLifecycleCallbacks : ActivityLifecycleCallbacks {
 
             try {
                 val currentCacheInMemory = Alltrans.cache
-                if (currentCacheInMemory.isNullOrEmpty()) {
-                    Utils.debugLog("onActivityDestroyed for $packageName: Cache became null or empty before saving. Nothing to save.")
+                // Correção para LruCache: snapshot().isNullOrEmpty() ou size() == 0
+                // As LruCache.size() é um método, e snapshot().isEmpty() também é um método.
+                if (currentCacheInMemory == null || currentCacheInMemory.size() == 0 || (currentCacheInMemory.snapshot()?.isEmpty() ?: true) ) {
+                    Utils.debugLog("onActivityDestroyed for $packageName: Cache is null or empty before saving. Nothing to save.")
                     return
                 }
 
-                Utils.debugLog("onActivityDestroyed for $packageName: Cache has ${currentCacheInMemory.size} items. Preparing to write.")
+                // currentCacheInMemory é LruCache, então .size() é correto.
+                // hashMapToSave é HashMap, então .size (propriedade) é correto.
+                Utils.debugLog("onActivityDestroyed for $packageName: Cache has ${currentCacheInMemory.size()} items. Preparing to write.")
 
                 tempFile = File(appContext.cacheDir, "AllTransCache.tmp")
                 val finalFile = File(appContext.filesDir, "AllTransCache")
@@ -50,10 +56,12 @@ internal class MyActivityLifecycleCallbacks : ActivityLifecycleCallbacks {
                     Utils.debugLog("onActivityDestroyed for $packageName: Temp file exists before write: ${tempFile.exists()}")
                     FileOutputStream(tempFile).use { fileOut ->
                         ObjectOutputStream(fileOut).use { objectOut ->
-                            val cacheCopy = HashMap(currentCacheInMemory)
-                            objectOut.writeObject(cacheCopy)
+                            val cacheSnapshot = currentCacheInMemory.snapshot()
+                            val hashMapToSave = HashMap(cacheSnapshot)
+                            objectOut.writeObject(hashMapToSave)
                             objectOut.flush()
-                            Utils.debugLog("onActivityDestroyed for $packageName: Cache data written to temp file '${tempFile.name}'. Size: ${cacheCopy.size}")
+                            // Correção: HashMap.size é uma propriedade. Usar .size para HashMap.
+                            Utils.debugLog("onActivityDestroyed for $packageName: LruCache snapshot (as HashMap) written to temp file '${tempFile.name}'. Size: ${hashMapToSave.size}")
                         }
                     }
                     Utils.debugLog("onActivityDestroyed for $packageName: Temp file exists after write: ${tempFile.exists()}, size: ${tempFile.length()}")
@@ -80,10 +88,12 @@ internal class MyActivityLifecycleCallbacks : ActivityLifecycleCallbacks {
 
                 Utils.debugLog("onActivityDestroyed for $packageName: Attempting to rename '${tempFile.name}' to '${finalFile.name}'")
                 if (tempFile.renameTo(finalFile)) {
-                    Utils.debugLog("onActivityDestroyed for $packageName: Cache saved successfully via rename. Final file size: ${finalFile.length()}. Cache items: ${currentCacheInMemory.size}")
+                    // Correção: LruCache.size() é um método.
+                    Utils.debugLog("onActivityDestroyed for $packageName: Cache saved successfully via rename. Final file size: ${finalFile.length()}. Cache items: ${currentCacheInMemory.size()}")
                 } else {
                     Utils.debugLog("onActivityDestroyed for $packageName: Rename failed. Attempting copy from '${tempFile.name}' to '${finalFile.name}'.")
-                    copyFile(tempFile, finalFile, packageName, currentCacheInMemory.size)
+                    // Correção: LruCache.size() é um método.
+                    copyFile(tempFile, finalFile, packageName, currentCacheInMemory.size())
                 }
 
             } catch (t: Throwable) {
@@ -104,7 +114,10 @@ internal class MyActivityLifecycleCallbacks : ActivityLifecycleCallbacks {
             val appName = activity.componentName?.className ?: "UnknownActivity"
             val reason = when {
                 !PreferenceList.Caching -> "caching is disabled"
-                Alltrans.cache.isNullOrEmpty() -> "cache object is null or empty"
+                // Correção para LruCache: snapshot().isEmpty() ou size() == 0
+                // A linha abaixo já usa .size() que é o correto para LruCache e snapshot().isEmpty() que é correto para Map.
+                // Adicionada verificação para currentCacheInMemory.size() == 0 explicitamente.
+                (Alltrans.cache == null || Alltrans.cache?.size() == 0 || (Alltrans.cache?.snapshot()?.isEmpty() ?: true)) -> "cache object is null or empty"
                 else -> "unknown reason (cache not empty but main condition failed)"
             }
             Utils.debugLog("onActivityDestroyed for $appName: Cache not saved because $reason.")

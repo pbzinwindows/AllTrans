@@ -18,6 +18,7 @@
  */
 package akhil.alltrans
 
+import de.robv.android.xposed.XposedBridge
 import android.content.ContentProvider
 import android.content.ContentValues
 import android.database.Cursor
@@ -96,27 +97,49 @@ class GtransProvider : ContentProvider() {
             // detectedLanguageCode remains null, proceed with fallback logic
         }
 
-        // 4. Determine actualSourceLanguage
-        if (detectedLanguageCode != null && detectedLanguageCode != "und") { // Corrected based on user feedback
-            Utils.debugLog(GtransProvider.TAG + ": Language auto-detected: $detectedLanguageCode for text: [$textToTranslate]")
-            actualSourceLanguage = detectedLanguageCode
-        } else {
-            Utils.debugLog(GtransProvider.TAG + ": Language detection failed or 'und'. Using URI fromLanguage: $uriFromLanguage as actualSourceLanguage.")
-            actualSourceLanguage = uriFromLanguage // Fallback to URI's fromLanguage
-            if (actualSourceLanguage == "auto" || actualSourceLanguage.isNullOrEmpty()) {
-                Log.w(GtransProvider.Companion.TAG, "Cannot translate: Detection failed and URI fromLanguage is '$actualSourceLanguage'.")
-                return createErrorCursor("Language unclear, cannot translate", projection)
+        // 4. Determine actualSourceLanguage (Lógica Simplificada Conforme Solicitado pelo Usuário)
+        if (uriFromLanguage.isNullOrEmpty() || uriFromLanguage == "auto") {
+            // uriFromLanguage é 'auto' ou não especificado.
+            if (detectedLanguageCode != null && detectedLanguageCode != "und") {
+                // Detecção válida, usar o idioma detectado.
+                Utils.debugLog(GtransProvider.TAG + ": URI fromLanguage was '${uriFromLanguage}'. Using detected language: '$detectedLanguageCode' for text: [$textToTranslate]")
+                actualSourceLanguage = detectedLanguageCode
+            } else {
+                // Detecção falhou ou 'und'. actualSourceLanguage permanece como estava (uriFromLanguage, que é 'auto' ou nulo/vazio).
+                // A verificação de erro subsequente tratará disso.
+                Utils.debugLog(GtransProvider.TAG + ": Language detection failed or was 'und' ('$detectedLanguageCode'). URI fromLanguage was '${uriFromLanguage}'. Source language remains: '$actualSourceLanguage' (which is '${uriFromLanguage}').")
+                // actualSourceLanguage já é uriFromLanguage (que é "auto", nulo ou vazio).
             }
+        } else {
+            // uriFromLanguage é um idioma específico. Usá-lo.
+            // Logar o idioma detectado para informação, mas não sobrescrever.
+            if (detectedLanguageCode != null && detectedLanguageCode != "und" && detectedLanguageCode != uriFromLanguage) {
+                Utils.debugLog(GtransProvider.TAG + ": Detected language was '$detectedLanguageCode' for text '[$textToTranslate]', but explicitly using specified URI language '$uriFromLanguage'.")
+            } else {
+                Utils.debugLog(GtransProvider.TAG + ": Using specified URI language '$uriFromLanguage' for text: [$textToTranslate]. Language detection result was: '$detectedLanguageCode'.")
+            }
+            actualSourceLanguage = uriFromLanguage // Garante que actualSourceLanguage é o da URI
         }
 
-        // At this point, actualSourceLanguage should be a concrete, non-null, non-"auto" language code.
-        // Or we've returned an error cursor in the block above.
-
-        // 5. Final checks and setup for translation
-        if (actualSourceLanguage.isNullOrEmpty()) { // Safeguard, should have been caught by the logic above.
-            Log.e(GtransProvider.Companion.TAG, "Critical Error: actualSourceLanguage is null or empty before translation logic.")
-            return createErrorCursor("Source language could not be determined (critical error)", projection)
+        // Verifica se actualSourceLanguage é válido ANTES de prosseguir para a tradução
+        if (actualSourceLanguage.isNullOrEmpty() || actualSourceLanguage == "auto") {
+            Utils.debugLog(GtransProvider.TAG + ": Error: Final source language is still null, empty, or 'auto' ('$actualSourceLanguage') for text '[$textToTranslate]'. Cannot translate.")
+            val errorCursor = createErrorCursor("Source language could not be determined or is 'auto'.", projection)
+            if (errorCursor is MatrixCursor && errorCursor.columnCount > 0 && textToTranslate != null) {
+                val rowBuilder = errorCursor.newRow()
+                for (i in 0 until errorCursor.columnCount) {
+                    if (errorCursor.getColumnName(i).equals(COLUMN_TRANSLATE, ignoreCase = true)) {
+                        rowBuilder.add(textToTranslate) // Retorna o texto original na coluna 'translate'
+                    } else {
+                        rowBuilder.add(null)
+                    }
+                }
+            }
+            return errorCursor
         }
+
+        Log.d(TAG, "Attempting translation for text '[$textToTranslate]' from '$actualSourceLanguage' to '$toLanguage'")
+        // 5. Final checks and setup for translation (as verificações de isNullOrEmpty e == "auto" já foram feitas)
 
         // Crucial Check: If actual source is the same as target, return original text
         if (actualSourceLanguage == toLanguage) {
@@ -144,11 +167,13 @@ class GtransProvider : ContentProvider() {
 
         // Validate actualSourceLanguage and toLanguage codes
         try {
-            if (!TranslateLanguage.getAllLanguages().contains(actualSourceLanguage)) {
-                Log.w(GtransProvider.Companion.TAG, "Invalid 'actualSourceLanguage' code: $actualSourceLanguage after detection and fallback.")
+            // A verificação de validade de actualSourceLanguage contra TranslateLanguage.getAllLanguages()
+            // é feita aqui. Se falhar, retorna erro.
+            if (!TranslateLanguage.getAllLanguages().contains(actualSourceLanguage)) { // actualSourceLanguage já é non-null aqui
+                Log.w(GtransProvider.Companion.TAG, "Invalid 'actualSourceLanguage' code: $actualSourceLanguage after all logic. This should ideally not happen if ML Kit supports the language.")
                 return createErrorCursor("Invalid 'from' language: $actualSourceLanguage", projection)
             }
-            if (!TranslateLanguage.getAllLanguages().contains(toLanguage)) {
+            if (!TranslateLanguage.getAllLanguages().contains(toLanguage)) { // toLanguage já é non-null aqui
                 Log.w(GtransProvider.Companion.TAG, "Invalid 'to' language code: $toLanguage")
                 return createErrorCursor("Invalid 'to' language: $toLanguage", projection)
             }
@@ -347,6 +372,7 @@ class GtransProvider : ContentProvider() {
     companion object {
         private const val TAG = "AllTrans:gtransProv"
         const val COLUMN_TRANSLATE: String = "translate"
+        const val MLKIT_MODEL_UNAVAILABLE_ERROR = "MLKIT_MODEL_UNAVAILABLE_ERROR_ALLTRANS_INTERNAL" // Adicionado
 
         private val mlKitExecutor: ExecutorService? =
             Executors.newCachedThreadPool()
