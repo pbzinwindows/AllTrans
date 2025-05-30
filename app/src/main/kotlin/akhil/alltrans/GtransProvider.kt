@@ -18,7 +18,6 @@
  */
 package akhil.alltrans
 
-import de.robv.android.xposed.XposedBridge
 import android.content.ContentProvider
 import android.content.ContentValues
 import android.database.Cursor
@@ -28,316 +27,432 @@ import android.os.Bundle
 import android.util.Log
 import androidx.annotation.GuardedBy
 import com.google.android.gms.tasks.Tasks
-import com.google.mlkit.nl.languageid.LanguageIdentification
-import com.google.mlkit.nl.languageid.LanguageIdentifier
 import com.google.mlkit.common.MlKitException
+import com.google.mlkit.nl.languageid.LanguageIdentification
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
 import java.util.Collections
+import java.util.Locale
 import java.util.concurrent.Callable
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
-// import android.os.ResultReceiver; // Não necessário nesta versão
 class GtransProvider : ContentProvider() {
+
+    // Cache para traduções já realizadas para evitar duplicação
+    @GuardedBy("translationCache")
+    private val translationCache: MutableMap<String, String> = ConcurrentHashMap()
+
+    // Limite do cache para evitar uso excessivo de memória
+    private val maxCacheSize = 1000
+
     @GuardedBy("translatorClients")
-    private val translatorClients: MutableMap<String?, Translator> =
-        Collections.synchronizedMap<String?, Translator?>(
-            HashMap<String?, Translator?>()
-        )
+    private val translatorClients: MutableMap<String, Translator> =
+        Collections.synchronizedMap(HashMap())
 
     override fun onCreate(): Boolean {
-        Utils.debugLog(GtransProvider.Companion.TAG + ": onCreate")
+        Utils.debugLog("$TAG: onCreate")
         return true
     }
 
-    // --- MÉTODO QUERY RESTAURADO ---
     override fun query(
         uri: Uri,
         projection: Array<String?>?,
         selection: String?,
         selectionArgs: Array<String?>?,
         sortOrder: String?
-    ): Cursor? {
+    ): Cursor {
         val startTime = System.nanoTime()
-        Utils.debugLog(GtransProvider.Companion.TAG + ": Received query URI: " + uri)
+        val requestId = generateRequestId()
+        Utils.debugLog("$TAG: [$requestId] Received query URI: $uri")
 
-        // 1. Extract params
-        val uriFromLanguage = uri.getQueryParameter(KEY_FROM_LANGUAGE)
+        val uriFromLanguageOriginal = uri.getQueryParameter(KEY_FROM_LANGUAGE)
         val toLanguage = uri.getQueryParameter(KEY_TO_LANGUAGE)
         val textToTranslate = uri.getQueryParameter(KEY_TEXT_TO_TRANSLATE)
 
-        var actualSourceLanguage: String? = uriFromLanguage // Initialize with URI's from_language
-
-        // 2. Initial null/empty checks for textToTranslate and toLanguage
-        if (textToTranslate.isNullOrEmpty()) {
-            Log.w(GtransProvider.Companion.TAG, "Text to translate is null or empty. URI: $uri")
-            return createErrorCursor("Text to translate is null or empty", projection)
-        }
-        if (toLanguage.isNullOrEmpty()) {
-            Log.w(GtransProvider.Companion.TAG, "Target language is null or empty. URI: $uri")
-            return createErrorCursor("Target language is null or empty", projection)
+        // Validação de entrada mais robusta
+        if (textToTranslate.isNullOrBlank()) {
+            Log.w(TAG, "[$requestId] Text to translate is null or blank. URI: $uri")
+            return createErrorCursor("Text to translate is null or blank", projection, startTime)
         }
 
-        // 3. Language Identification Block
+        if (toLanguage.isNullOrBlank()) {
+            Log.w(TAG, "[$requestId] Target language is null or blank. URI: $uri")
+            return createErrorCursor("Target language is null or blank", projection, startTime)
+        }
+
+        // Normalizar texto para evitar traduções duplicadas de textos similares
+        val normalizedText = textToTranslate.trim()
+
+        // Verificar se o texto é muito curto ou apenas caracteres especiais
+        if (normalizedText.length < 2 || normalizedText.matches(Regex("^[\\s\\p{P}\\p{S}]*$"))) {
+            Utils.debugLog("$TAG: [$requestId] Text too short or only special characters, returning original: [$normalizedText]")
+            return createOriginalTextCursor(normalizedText, projection, startTime)
+        }
+
         var detectedLanguageCode: String? = null
-        // Only run if text is not empty (already checked above, but good practice if this block were moved)
         val languageIdentifier = LanguageIdentification.getClient()
+        Utils.debugLog("$TAG: [$requestId] Text being sent for language identification: [$normalizedText]")
+
         try {
-            Utils.debugLog(GtransProvider.TAG + ": Attempting language identification for text: [$textToTranslate]")
-            detectedLanguageCode = Tasks.await(languageIdentifier.identifyLanguage(textToTranslate), 5, TimeUnit.SECONDS)
-            Utils.debugLog(GtransProvider.TAG + ": Language identification task completed. Detected: $detectedLanguageCode")
-        } catch (e: Exception) { // Catches TimeoutException, InterruptedException, ExecutionException
-            Log.w(GtransProvider.Companion.TAG, "Language identification task failed for text: [$textToTranslate]", e)
-            // detectedLanguageCode remains null, proceed with fallback logic
-        }
-
-        // 4. Determine actualSourceLanguage (Lógica Simplificada Conforme Solicitado pelo Usuário)
-        if (uriFromLanguage.isNullOrEmpty() || uriFromLanguage == "auto") {
-            // uriFromLanguage é 'auto' ou não especificado.
-            if (detectedLanguageCode != null && detectedLanguageCode != "und") {
-                // Detecção válida, usar o idioma detectado.
-                Utils.debugLog(GtransProvider.TAG + ": URI fromLanguage was '${uriFromLanguage}'. Using detected language: '$detectedLanguageCode' for text: [$textToTranslate]")
-                actualSourceLanguage = detectedLanguageCode
-            } else {
-                // Detecção falhou ou 'und'. actualSourceLanguage permanece como estava (uriFromLanguage, que é 'auto' ou nulo/vazio).
-                // A verificação de erro subsequente tratará disso.
-                Utils.debugLog(GtransProvider.TAG + ": Language detection failed or was 'und' ('$detectedLanguageCode'). URI fromLanguage was '${uriFromLanguage}'. Source language remains: '$actualSourceLanguage' (which is '${uriFromLanguage}').")
-                // actualSourceLanguage já é uriFromLanguage (que é "auto", nulo ou vazio).
-            }
-        } else {
-            // uriFromLanguage é um idioma específico. Usá-lo.
-            // Logar o idioma detectado para informação, mas não sobrescrever.
-            if (detectedLanguageCode != null && detectedLanguageCode != "und" && detectedLanguageCode != uriFromLanguage) {
-                Utils.debugLog(GtransProvider.TAG + ": Detected language was '$detectedLanguageCode' for text '[$textToTranslate]', but explicitly using specified URI language '$uriFromLanguage'.")
-            } else {
-                Utils.debugLog(GtransProvider.TAG + ": Using specified URI language '$uriFromLanguage' for text: [$textToTranslate]. Language detection result was: '$detectedLanguageCode'.")
-            }
-            actualSourceLanguage = uriFromLanguage // Garante que actualSourceLanguage é o da URI
-        }
-
-        // Verifica se actualSourceLanguage é válido ANTES de prosseguir para a tradução
-        if (actualSourceLanguage.isNullOrEmpty() || actualSourceLanguage == "auto") {
-            Utils.debugLog(GtransProvider.TAG + ": Error: Final source language is still null, empty, or 'auto' ('$actualSourceLanguage') for text '[$textToTranslate]'. Cannot translate.")
-            val errorCursor = createErrorCursor("Source language could not be determined or is 'auto'.", projection)
-            if (errorCursor is MatrixCursor && errorCursor.columnCount > 0 && textToTranslate != null) {
-                val rowBuilder = errorCursor.newRow()
-                for (i in 0 until errorCursor.columnCount) {
-                    if (errorCursor.getColumnName(i).equals(COLUMN_TRANSLATE, ignoreCase = true)) {
-                        rowBuilder.add(textToTranslate) // Retorna o texto original na coluna 'translate'
-                    } else {
-                        rowBuilder.add(null)
-                    }
-                }
-            }
-            return errorCursor
-        }
-
-        Log.d(TAG, "Attempting translation for text '[$textToTranslate]' from '$actualSourceLanguage' to '$toLanguage'")
-        // 5. Final checks and setup for translation (as verificações de isNullOrEmpty e == "auto" já foram feitas)
-
-        // Crucial Check: If actual source is the same as target, return original text
-        if (actualSourceLanguage == toLanguage) {
-            Utils.debugLog(GtransProvider.TAG + ": Skipping translation: Actual source language ($actualSourceLanguage) is the same as target language ($toLanguage).")
-            val resultColumns: Array<String?> = if (projection == null || projection.isEmpty()) {
-                arrayOf(COLUMN_TRANSLATE)
-            } else {
-                if (!projection.any { it.equals(COLUMN_TRANSLATE, ignoreCase = true) }) {
-                    Log.w(GtransProvider.Companion.TAG, "Requested projection does not include '$COLUMN_TRANSLATE'. Returning original text in default column.")
-                    return MatrixCursor(projection) // Return empty cursor matching projection
-                }
-                projection
-            }
-            val cursor = MatrixCursor(resultColumns)
-            val rowBuilder = cursor.newRow()
-            for (col in resultColumns) {
-                if (COLUMN_TRANSLATE.equals(col, ignoreCase = true)) {
-                    rowBuilder.add(textToTranslate)
-                } else {
-                    rowBuilder.add(null) // Add null for other projected columns
-                }
-            }
-            return cursor
-        }
-
-        // Validate actualSourceLanguage and toLanguage codes
-        try {
-            // A verificação de validade de actualSourceLanguage contra TranslateLanguage.getAllLanguages()
-            // é feita aqui. Se falhar, retorna erro.
-            if (!TranslateLanguage.getAllLanguages().contains(actualSourceLanguage)) { // actualSourceLanguage já é non-null aqui
-                Log.w(GtransProvider.Companion.TAG, "Invalid 'actualSourceLanguage' code: $actualSourceLanguage after all logic. This should ideally not happen if ML Kit supports the language.")
-                return createErrorCursor("Invalid 'from' language: $actualSourceLanguage", projection)
-            }
-            if (!TranslateLanguage.getAllLanguages().contains(toLanguage)) { // toLanguage já é non-null aqui
-                Log.w(GtransProvider.Companion.TAG, "Invalid 'to' language code: $toLanguage")
-                return createErrorCursor("Invalid 'to' language: $toLanguage", projection)
-            }
-        } catch (e: IllegalArgumentException) {
-            Log.e(GtransProvider.Companion.TAG, "Language code validation failed unexpectedly", e)
-            return createErrorCursor("Language code validation error", projection)
-        }
-
-        val hashKey = actualSourceLanguage + "##" + toLanguage
-        val finalFromLang: String = actualSourceLanguage!!
-        val finalToLang: String = toLanguage!!
-
-        val finalTranslator: Translator?
-        synchronized(translatorClients) {
-            var translator = translatorClients.get(hashKey)
-            if (translator == null) {
-                Utils.debugLog(GtransProvider.Companion.TAG + ": Creating new Translator for $finalFromLang -> $finalToLang")
-                try {
-                    val options = TranslatorOptions.Builder()
-                        .setSourceLanguage(finalFromLang)
-                        .setTargetLanguage(finalToLang)
-                        .build()
-                    translator = Translation.getClient(options)
-                    translatorClients.put(hashKey, translator)
-                } catch (e: Exception) {
-                    Log.e(
-                        GtransProvider.Companion.TAG,
-                        "Failed to create Translator client for " + hashKey,
-                        e
-                    )
-                    return createErrorCursor("Failed to create translator", projection)
-                }
-            }
-            finalTranslator = translator
-        }
-
-        val translationTask = Callable {
-            try {
-                val task = finalTranslator!!.translate(textToTranslate)
-                val result = Tasks.await<String?>(
-                    task,
-                    10,
-                    TimeUnit.SECONDS
-                )
-                Utils.debugLog(GtransProvider.Companion.TAG + ": ML Kit translation successful for: [" + textToTranslate + "]")
-                return@Callable if (result != null) result else textToTranslate
-            } catch (e: TimeoutException) {
-                Log.w(
-                    GtransProvider.Companion.TAG,
-                    "ML Kit translation timed out for: [" + textToTranslate + "]"
-                )
-                return@Callable textToTranslate
-            } catch (e: Exception) {
-                if (e.cause is MlKitException && (e.cause as MlKitException).getErrorCode() == MlKitException.UNAVAILABLE) {
-                    Log.w(
-                        GtransProvider.Companion.TAG,
-                        "ML Kit model not available/downloaded for " + finalFromLang + "->" + finalToLang
-                    )
-                } else {
-                    Log.e(
-                        GtransProvider.Companion.TAG,
-                        "ML Kit translation failed for: [" + textToTranslate + "]",
-                        e
-                    )
-                }
-                return@Callable textToTranslate
-            }
-        }
-
-        val futureResult: Future<String?> =
-            GtransProvider.Companion.mlKitExecutor!!.submit<String?>(translationTask)
-
-        var translatedString: String? = textToTranslate
-        try {
-            translatedString = futureResult.get(12, TimeUnit.SECONDS)
-            Utils.debugLog(GtransProvider.Companion.TAG + ": Future task completed. Result: [" + translatedString + "]")
-        } catch (e: TimeoutException) {
-            Log.w(GtransProvider.Companion.TAG, "Future task timed out waiting for ML Kit result.")
-            futureResult.cancel(true)
-            translatedString = textToTranslate
+            detectedLanguageCode = Tasks.await(languageIdentifier.identifyLanguage(normalizedText), 5, TimeUnit.SECONDS)
+            Utils.debugLog("$TAG: [$requestId] Language identification completed. Detected: '$detectedLanguageCode'")
         } catch (e: Exception) {
-            Log.e(GtransProvider.Companion.TAG, "Future task failed waiting for ML Kit result", e)
-            translatedString = textToTranslate
+            Log.w(TAG, "[$requestId] Language identification failed for text: [$normalizedText]", e)
+        }
+
+        var actualSourceLanguage: String?
+        val allKnownMlKitLanguages = TranslateLanguage.getAllLanguages()
+
+        if (detectedLanguageCode != null &&
+            detectedLanguageCode != UNDETERMINED_LANGUAGE &&
+            allKnownMlKitLanguages.contains(detectedLanguageCode)
+        ) {
+            if (detectedLanguageCode == toLanguage) {
+                Utils.debugLog("$TAG: [$requestId] Detected language same as target, skipping translation")
+                return createOriginalTextCursor(normalizedText, projection, startTime)
+            }
+            actualSourceLanguage = detectedLanguageCode
+            Utils.debugLog("$TAG: [$requestId] Using detected language '$actualSourceLanguage' as source")
+        } else {
+            Utils.debugLog("$TAG: [$requestId] Using URI fromLanguage as source: '$uriFromLanguageOriginal'")
+            actualSourceLanguage = uriFromLanguageOriginal
+        }
+
+        if (actualSourceLanguage.isNullOrBlank() ||
+            actualSourceLanguage == "auto" ||
+            actualSourceLanguage == UNDETERMINED_LANGUAGE ||
+            !allKnownMlKitLanguages.contains(actualSourceLanguage)
+        ) {
+            val reason = when {
+                actualSourceLanguage.isNullOrBlank() -> "null or blank"
+                actualSourceLanguage == "auto" -> "'auto' (not directly translatable)"
+                actualSourceLanguage == UNDETERMINED_LANGUAGE -> "'undetermined'"
+                !allKnownMlKitLanguages.contains(actualSourceLanguage) -> "not supported ('$actualSourceLanguage')"
+                else -> "unknown reason"
+            }
+            Log.w(TAG, "[$requestId] Invalid source language: $reason")
+            return createErrorCursorWithFallbackText(
+                "Source language invalid ($reason)",
+                projection,
+                normalizedText,
+                startTime
+            )
+        }
+
+        if (!allKnownMlKitLanguages.contains(toLanguage)) {
+            Log.w(TAG, "[$requestId] Target language not supported: '$toLanguage'")
+            return createErrorCursorWithFallbackText(
+                "Target language not supported ('$toLanguage')",
+                projection,
+                normalizedText,
+                startTime
+            )
+        }
+
+        if (actualSourceLanguage == toLanguage) {
+            Utils.debugLog("$TAG: [$requestId] Source equals target language, skipping translation")
+            return createOriginalTextCursor(normalizedText, projection, startTime)
+        }
+
+        // Criar chave única para cache incluindo o texto exato
+        val cacheKey = "${actualSourceLanguage}##${toLanguage}##${normalizedText.hashCode()}"
+
+        // Verificar cache primeiro
+        val cachedTranslation = translationCache[cacheKey]
+        if (cachedTranslation != null) {
+            Utils.debugLog("$TAG: [$requestId] Using cached translation for: [$normalizedText]")
+            return createSuccessCursor(cachedTranslation, projection, startTime)
+        }
+
+        Log.d(TAG, "[$requestId] Proceeding with translation: '$actualSourceLanguage' -> '$toLanguage'")
+
+        val translatorKey = "$actualSourceLanguage##$toLanguage"
+        val translator = getOrCreateTranslator(translatorKey, actualSourceLanguage, toLanguage, requestId)
+            ?: return createErrorCursorWithFallbackText(
+                "Failed to create translator",
+                projection,
+                normalizedText,
+                startTime
+            )
+
+        val translationCallable = Callable {
+            try {
+                val task = translator.translate(normalizedText)
+                val result = Tasks.await(task, 10, TimeUnit.SECONDS)
+                Utils.debugLog("$TAG: [$requestId] Translation successful. Result: [$result]")
+
+                val finalResult = if (!result.isNullOrBlank() && result != normalizedText) {
+                    // Cache da tradução bem-sucedida
+                    synchronized(translationCache) {
+                        if (translationCache.size >= maxCacheSize) {
+                            // Remove entrada mais antiga (implementação simples)
+                            val firstKey = translationCache.keys.firstOrNull()
+                            if (firstKey != null) {
+                                translationCache.remove(firstKey)
+                            }
+                        }
+                        translationCache[cacheKey] = result
+                    }
+                    result
+                } else {
+                    normalizedText
+                }
+
+                finalResult
+            } catch (e: TimeoutException) {
+                Log.w(TAG, "[$requestId] Translation timed out")
+                normalizedText
+            } catch (e: Exception) {
+                handleTranslationException(e, actualSourceLanguage, toLanguage, normalizedText, requestId)
+            }
+        }
+
+        var translatedString: String?
+        try {
+            val futureResult: Future<String?> = mlKitExecutor!!.submit(translationCallable)
+            translatedString = futureResult.get(12, TimeUnit.SECONDS)
+            Utils.debugLog("$TAG: [$requestId] Future task completed. Result: [$translatedString]")
+        } catch (e: TimeoutException) {
+            Log.w(TAG, "[$requestId] Future task timed out")
+            translatedString = normalizedText
+        } catch (e: Exception) {
+            Log.e(TAG, "[$requestId] Future task failed", e)
+            translatedString = normalizedText
         }
 
         val durationNs = System.nanoTime() - startTime
-        Utils.debugLog(
-            GtransProvider.Companion.TAG + ": Query processing took " + TimeUnit.NANOSECONDS.toMillis(
-                durationNs
-            ) + "ms"
-        )
+        Utils.debugLog("$TAG: [$requestId] Processing took ${TimeUnit.NANOSECONDS.toMillis(durationNs)}ms")
 
-        val columns: Array<String?>?
-        if (projection == null || projection.size == 0) {
-            columns = arrayOf<String?>(COLUMN_TRANSLATE)
-        } else {
-            var found = false
-            for (p in projection) {
-                if (COLUMN_TRANSLATE.equals(p, ignoreCase = true)) {
-                    found = true
-                    break
+        return createSuccessCursor(translatedString ?: normalizedText, projection, startTime)
+    }
+
+    private fun generateRequestId(): String {
+        return System.currentTimeMillis().toString(36) + (Math.random() * 1000).toInt().toString(36)
+    }
+
+    private fun getOrCreateTranslator(
+        hashKey: String,
+        sourceLanguage: String,
+        targetLanguage: String,
+        requestId: String
+    ): Translator? {
+        synchronized(translatorClients) {
+            var translator = translatorClients[hashKey]
+            if (translator == null) {
+                Utils.debugLog("$TAG: [$requestId] Creating new Translator for $sourceLanguage -> $targetLanguage")
+                try {
+                    val options = TranslatorOptions.Builder()
+                        .setSourceLanguage(sourceLanguage)
+                        .setTargetLanguage(targetLanguage)
+                        .build()
+                    translator = Translation.getClient(options)
+                    translatorClients[hashKey] = translator
+                } catch (e: Exception) {
+                    Log.e(TAG, "[$requestId] Failed to create Translator client", e)
+                    return null
                 }
             }
-            if (!found) {
-                Log.w(
-                    GtransProvider.Companion.TAG,
-                    "Requested projection does not include '" + COLUMN_TRANSLATE + "'."
-                )
-                return MatrixCursor(projection)
+            return translator
+        }
+    }
+
+    private fun handleTranslationException(
+        e: Exception,
+        sourceLanguage: String,
+        targetLanguage: String,
+        text: String,
+        requestId: String
+    ): String {
+        val mlKitCause = e.cause as? MlKitException
+        if (mlKitCause != null) {
+            val errorMessage = mlKitCause.message?.lowercase(Locale.ROOT) ?: ""
+            if (errorMessage.contains("model") &&
+                (errorMessage.contains("unavailable") ||
+                        errorMessage.contains("download") ||
+                        errorMessage.contains("space") ||
+                        errorMessage.contains("not found"))
+            ) {
+                Log.w(TAG, "[$requestId] ML Kit model issue: ${mlKitCause.message}", e)
+                return MLKIT_MODEL_UNAVAILABLE_ERROR
             }
-            columns = projection
+        } else {
+            val genericErrorMessage = e.message?.lowercase(Locale.ROOT) ?: ""
+            if (genericErrorMessage.contains("model") &&
+                (genericErrorMessage.contains("unavailable") ||
+                        genericErrorMessage.contains("download") ||
+                        genericErrorMessage.contains("space") ||
+                        genericErrorMessage.contains("not found"))
+            ) {
+                Log.w(TAG, "[$requestId] ML Kit model issue (direct): ${e.message}", e)
+                return MLKIT_MODEL_UNAVAILABLE_ERROR
+            }
+        }
+
+        Log.e(TAG, "[$requestId] Translation failed for: [$text] ($sourceLanguage->$targetLanguage)", e)
+        return text
+    }
+
+    private fun createSuccessCursor(
+        translatedText: String,
+        projection: Array<String?>?,
+        startTimeNanos: Long
+    ): MatrixCursor {
+        val columns = if (projection.isNullOrEmpty()) {
+            arrayOf(COLUMN_TRANSLATE)
+        } else {
+            projection
         }
 
         val cursor = MatrixCursor(columns)
         val builder = cursor.newRow()
+
         for (col in columns) {
             if (COLUMN_TRANSLATE.equals(col, ignoreCase = true)) {
-                builder.add(translatedString)
+                builder.add(translatedText)
             } else {
                 builder.add(null)
             }
         }
+
         return cursor
     }
 
-    private fun createErrorCursor(errorMessage: String?, projection: Array<String?>?): Cursor {
-        val columns: Array<String?> =
-            if (projection == null || projection.size == 0) arrayOf<String?>(
-                COLUMN_TRANSLATE
-            ) else projection
+    private fun createOriginalTextCursor(
+        originalText: String?,
+        projection: Array<String?>?,
+        startTimeNanos: Long
+    ): MatrixCursor {
+        val columns = if (projection.isNullOrEmpty() ||
+            !projection.any { it.equals(COLUMN_TRANSLATE, ignoreCase = true) }) {
+            arrayOf(COLUMN_TRANSLATE)
+        } else {
+            projection
+        }
+
         val cursor = MatrixCursor(columns)
-        val extras = Bundle()
-        extras.putString("error", errorMessage)
-        cursor.setExtras(extras)
+        val rowBuilder = cursor.newRow()
+
+        for (colName in columns) {
+            if (COLUMN_TRANSLATE.equals(colName, ignoreCase = true)) {
+                rowBuilder.add(originalText)
+            } else {
+                rowBuilder.add(null)
+            }
+        }
+
+        val durationNs = System.nanoTime() - startTimeNanos
+        Utils.debugLog("$TAG: Query processing (original returned) took ${TimeUnit.NANOSECONDS.toMillis(durationNs)}ms")
+        return cursor
+    }
+
+    private fun createErrorCursorWithFallbackText(
+        errorMessage: String?,
+        projection: Array<String?>?,
+        originalText: String?,
+        startTimeNanos: Long
+    ): MatrixCursor {
+        val columns = if (projection.isNullOrEmpty() ||
+            !projection.any { it.equals(COLUMN_TRANSLATE, ignoreCase = true) }) {
+            arrayOf(COLUMN_TRANSLATE)
+        } else {
+            projection
+        }
+
+        val cursor = MatrixCursor(columns)
+        if (!errorMessage.isNullOrEmpty()) {
+            val extrasBundle = Bundle()
+            extrasBundle.putString("error", errorMessage)
+            cursor.extras = extrasBundle
+        }
+
+        val rowBuilder = cursor.newRow()
+        for (colName in columns) {
+            if (COLUMN_TRANSLATE.equals(colName, ignoreCase = true)) {
+                rowBuilder.add(originalText)
+            } else {
+                rowBuilder.add(null)
+            }
+        }
+
+        val durationNs = System.nanoTime() - startTimeNanos
+        Utils.debugLog("$TAG: Query processing (error with fallback) took ${TimeUnit.NANOSECONDS.toMillis(durationNs)}ms")
+        return cursor
+    }
+
+    private fun createErrorCursor(
+        errorMessage: String?,
+        projection: Array<String?>?,
+        startTimeNanos: Long
+    ): MatrixCursor {
+        val columnsToUse = if (projection.isNullOrEmpty() ||
+            !projection.any { it.equals(COLUMN_TRANSLATE, ignoreCase = true) }) {
+            arrayOf(COLUMN_TRANSLATE)
+        } else {
+            projection
+        }
+
+        val cursor = MatrixCursor(columnsToUse)
+        if (!errorMessage.isNullOrEmpty()) {
+            val extrasBundle = Bundle()
+            extrasBundle.putString("error", errorMessage)
+            cursor.extras = extrasBundle
+        }
+
+        val durationNs = System.nanoTime() - startTimeNanos
+        Utils.debugLog("$TAG: Query processing (error) took ${TimeUnit.NANOSECONDS.toMillis(durationNs)}ms")
         return cursor
     }
 
     override fun shutdown() {
         super.shutdown()
-        Utils.debugLog(GtransProvider.Companion.TAG + ": shutdown initiated.")
+        Utils.debugLog("$TAG: shutdown initiated")
+
+        // Limpar cache
+        synchronized(translationCache) {
+            translationCache.clear()
+            Utils.debugLog("$TAG: Translation cache cleared")
+        }
+
         synchronized(translatorClients) {
-            Utils.debugLog(GtransProvider.Companion.TAG + ": Closing " + translatorClients.size + " cached Translator clients.")
-            for (translator in translatorClients.values) {
+            Utils.debugLog("$TAG: Closing ${translatorClients.size} cached Translator clients")
+            for ((key, translator) in translatorClients) {
                 try {
                     translator.close()
+                    Utils.debugLog("$TAG: Closed translator for $key")
                 } catch (e: Exception) {
-                    Log.w(GtransProvider.Companion.TAG, "Error closing translator.", e)
+                    Log.w(TAG, "Error closing translator for $key", e)
                 }
             }
             translatorClients.clear()
         }
-        if (GtransProvider.Companion.mlKitExecutor != null && !GtransProvider.Companion.mlKitExecutor.isShutdown()) {
-            Utils.debugLog(GtransProvider.Companion.TAG + ": Shutting down ML Kit ExecutorService.")
-            GtransProvider.Companion.mlKitExecutor.shutdown()
-            try {
-                if (!GtransProvider.Companion.mlKitExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                    GtransProvider.Companion.mlKitExecutor.shutdownNow()
+
+        mlKitExecutor?.let { executor ->
+            if (!executor.isShutdown) {
+                Utils.debugLog("$TAG: Shutting down ML Kit ExecutorService")
+                executor.shutdown()
+                try {
+                    if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                        executor.shutdownNow()
+                        Utils.debugLog("$TAG: ML Kit ExecutorService shutdownNow called")
+                    } else {
+                        Utils.debugLog("$TAG: ML Kit ExecutorService terminated successfully")
+                    }
+                } catch (e: InterruptedException) {
+                    executor.shutdownNow()
+                    Utils.debugLog("$TAG: ML Kit ExecutorService shutdown interrupted")
+                    Thread.currentThread().interrupt()
                 }
-            } catch (e: InterruptedException) {
-                GtransProvider.Companion.mlKitExecutor.shutdownNow()
-                Thread.currentThread().interrupt()
             }
         }
-        Utils.debugLog(GtransProvider.Companion.TAG + ": shutdown complete.")
+
+        Utils.debugLog("$TAG: shutdown complete")
     }
 
     override fun getType(uri: Uri): String? {
@@ -345,19 +460,16 @@ class GtransProvider : ContentProvider() {
     }
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
-        Log.w(
-            GtransProvider.Companion.TAG,
-            "Call method invoked, but not implemented. Returning null."
-        )
+        Log.w(TAG, "Call method invoked but not implemented (method: $method, arg: $arg)")
         return null
     }
 
     override fun insert(uri: Uri, values: ContentValues?): Uri? {
-        throw UnsupportedOperationException("Insert not supported")
+        throw UnsupportedOperationException("Insert not supported by AllTrans GtransProvider")
     }
 
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<String?>?): Int {
-        throw UnsupportedOperationException("Delete not supported")
+        throw UnsupportedOperationException("Delete not supported by AllTrans GtransProvider")
     }
 
     override fun update(
@@ -366,20 +478,19 @@ class GtransProvider : ContentProvider() {
         selection: String?,
         selectionArgs: Array<String?>?
     ): Int {
-        throw UnsupportedOperationException("Update not supported")
+        throw UnsupportedOperationException("Update not supported by AllTrans GtransProvider")
     }
 
     companion object {
-        private const val TAG = "AllTrans:gtransProv"
+        const val TAG = "AllTrans:gtransProv"
         const val COLUMN_TRANSLATE: String = "translate"
-        const val MLKIT_MODEL_UNAVAILABLE_ERROR = "MLKIT_MODEL_UNAVAILABLE_ERROR_ALLTRANS_INTERNAL" // Adicionado
+        const val UNDETERMINED_LANGUAGE = "und"
+        const val MLKIT_MODEL_UNAVAILABLE_ERROR = "ALLTRANS_MLKIT_MODEL_UNAVAILABLE_ERROR_INTERNAL_MAGIC_STRING"
 
-        private val mlKitExecutor: ExecutorService? =
-            Executors.newCachedThreadPool()
+        val mlKitExecutor: ExecutorService? = Executors.newCachedThreadPool()
 
         const val KEY_TEXT_TO_TRANSLATE: String = "text"
         const val KEY_FROM_LANGUAGE: String = "from"
         const val KEY_TO_LANGUAGE: String = "to"
-        const val KEY_RESULT_RECEIVER: String = "receiver"
     }
 }

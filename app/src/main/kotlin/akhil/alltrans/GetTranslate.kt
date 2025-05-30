@@ -1,12 +1,17 @@
 package akhil.alltrans
 
+import android.os.Bundle // Adicionado para MyResultReceiver, embora não usado diretamente aqui, mantendo consistência se MyResultReceiver fosse interno.
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.widget.TextView
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.OkHttpClient // Adicionado para MyResultReceiver, se mockCall fosse mais complexo
+import okhttp3.Protocol // Adicionado para MyResultReceiver
+import okhttp3.Request // Adicionado para MyResultReceiver
 import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody // Adicionado para MyResultReceiver
 import org.json.JSONArray
 import org.json.JSONException
 import java.io.IOException
@@ -144,15 +149,11 @@ class GetTranslate : Callback {
                         translatedString = "" // Fallback to empty string if both are null/empty
                     }
 
-                    // Null check before calling cacheTranslation
-                    // For MS provider, if original string was used, translatedString will be originalString.
-                    // cacheTranslation has a check for (translated == original)
                     if (localOriginalString != null && translatedString != null) {
                         cacheTranslation(localOriginalString, translatedString)
                     } else {
                         Utils.debugLog("$TAG: Skipping cacheTranslation due to null values: original=[$localOriginalString], translated=[$translatedString]")
                     }
-                    // For single translations, the existing callback logic at the end of the function will be used.
                 }
             }
         } catch (e: Throwable) {
@@ -165,8 +166,6 @@ class GetTranslate : Callback {
             }
         } finally {
             response.body?.close() // Ensure body is closed
-            // This `finally` block will now primarily handle single translation callbacks.
-            // Batch callbacks are handled within the `isBatchMicrosoft` block.
             if (!isBatchMicrosoft) {
                 val finalString: String = translatedString ?: stringToBeTrans ?: ""
                 Utils.debugLog("$TAG: Final single translation result before callback: [$finalString]")
@@ -184,8 +183,7 @@ class GetTranslate : Callback {
         try {
             Utils.debugLog("$TAG: Putting in cache: [$original] -> [$translated]")
             Alltrans.cache?.let {
-                it.put(original, translated) // Use .put() for LruCache
-                // Não armazene a tradução como chave para si mesma (evita loops de tradução)
+                it.put(original, translated)
             } ?: Utils.debugLog("$TAG: Cache object is null, cannot update cache.")
         } finally {
             if (Alltrans.cacheAccess.availablePermits() == 0) {
@@ -195,18 +193,21 @@ class GetTranslate : Callback {
     }
 
     private fun triggerSuccessCallback(translatedText: String, callbackInfo: CallbackInfo) {
-        // Usa o pendingCompositeKey não-nulo da CallbackInfo
         val keyToRemoveFromPending = callbackInfo.pendingCompositeKey
 
         Handler(Looper.getMainLooper()).postDelayed({
             try {
                 if (callbackInfo.userData is TextView) {
-                    val tv = callbackInfo.userData
+                    val tv = callbackInfo.userData as TextView
                     if (translatedText != callbackInfo.originalString) {
                         Utils.debugLog("$TAG: Updating TextView (${tv.hashCode()}) with batch translated text: [$translatedText]")
                         tv.text = translatedText
+                        tv.setTag(R.id.tag_alltrans_translated_textview, true) // CORREÇÃO ADICIONADA
                     } else {
                         Utils.debugLog("$TAG: Skipping TextView update for (${tv.hashCode()}), batch translated text is same as original: [$translatedText]")
+                        // Se o texto é o mesmo (ex: idioma de origem = idioma de destino), ainda marcamos como processado
+                        // para evitar que seja enviado para tradução novamente desnecessariamente.
+                        tv.setTag(R.id.tag_alltrans_translated_textview, true) // CORREÇÃO ADICIONADA
                     }
                 } else if (callbackInfo.canCallOriginal && callbackInfo.originalCallable != null) {
                     Utils.debugLog("$TAG: Calling originalCallable.callOriginalMethod for batch item with text: [$translatedText]")
@@ -217,14 +218,10 @@ class GetTranslate : Callback {
             } catch (e: Exception) {
                 Log.e(TAG, "Error in batch success callback for ${callbackInfo.originalString}", e)
             } finally {
-                // **CORREÇÃO:** Remover a chave pendente independentemente do seu valor (se era 0 ou não)
-                // A lógica de adicionar a chave nos handlers (SetTextHookHandler, etc.) é que deve ser consistente.
-                // Se a chave '0' foi adicionada, ela deve ser removida.
                 synchronized(Alltrans.pendingTextViewTranslations) {
                     if (Alltrans.pendingTextViewTranslations.remove(keyToRemoveFromPending)) {
                         Utils.debugLog("$TAG: Removed item hash ($keyToRemoveFromPending) from pending set after batch onResponse.")
                     } else {
-                        // Se não conseguiu remover, pode ser que já tenha sido removido ou nunca foi adicionado
                         Utils.debugLog("$TAG: Could not remove hash ($keyToRemoveFromPending) from pending set, may already be removed or was never added (e.g. if key was 0 and BatchManager skipped it).")
                     }
                 }
@@ -233,17 +230,21 @@ class GetTranslate : Callback {
     }
 
     private fun triggerSingleCallback(finalString: String, originalString: String?, currentLocalUserData: Any?, currentLocalOriginalCallable: OriginalCallable?, currentLocalCanCallOriginal: Boolean) {
-        // Usa o pendingCompositeKey não-nulo da instância
         val keyToRemove = pendingCompositeKey
 
         Handler(Looper.getMainLooper()).postDelayed({
             try {
                 if (currentLocalUserData is TextView) {
+                    val tv = currentLocalUserData as TextView // Alterado para val
                     if (finalString != originalString) { // only update if different
-                        Utils.debugLog("$TAG: Updating TextView (${currentLocalUserData.hashCode()}) with single translated text: [$finalString]")
-                        currentLocalUserData.text = finalString
+                        Utils.debugLog("$TAG: Updating TextView (${tv.hashCode()}) with single translated text: [$finalString]")
+                        tv.text = finalString
+                        tv.setTag(R.id.tag_alltrans_translated_textview, true) // CORREÇÃO ADICIONADA
                     } else {
-                        Utils.debugLog("$TAG: Skipping TextView update for (${currentLocalUserData.hashCode()}), single translated text is same as original: [$finalString]")
+                        Utils.debugLog("$TAG: Skipping TextView update for (${tv.hashCode()}), single translated text is same as original: [$finalString]")
+                        // Se o texto é o mesmo (ex: idioma de origem = idioma de destino, ou a tradução resultou no mesmo texto),
+                        // ainda marcamos como processado para evitar que seja enviado para tradução novamente.
+                        tv.setTag(R.id.tag_alltrans_translated_textview, true) // CORREÇÃO ADICIONADA
                     }
                 } else if (currentLocalCanCallOriginal && currentLocalOriginalCallable != null) {
                     Utils.debugLog("$TAG: Calling originalCallable.callOriginalMethod for single item with text: [$finalString]")
@@ -254,7 +255,6 @@ class GetTranslate : Callback {
             } catch (e: Exception) {
                 Log.e(TAG, "Error in single item callback for $originalString", e)
             } finally {
-                // **CORREÇÃO:** Remover a chave pendente independentemente do seu valor.
                 synchronized(Alltrans.pendingTextViewTranslations) {
                     if (Alltrans.pendingTextViewTranslations.remove(keyToRemove)) {
                         Utils.debugLog("$TAG: Removed item hash ($keyToRemove) from pending set after single onResponse.")
@@ -269,7 +269,6 @@ class GetTranslate : Callback {
     private fun handleBatchFailure(callbacks: List<CallbackInfo>, reason: String) {
         Utils.debugLog("$TAG: Handling batch failure: $reason")
         callbacks.forEach { cbInfo ->
-            // Usa o pendingCompositeKey não-nulo do CallbackInfo
             val keyToRemoveFromPending = cbInfo.pendingCompositeKey
 
             Handler(Looper.getMainLooper()).postDelayed({
@@ -279,13 +278,14 @@ class GetTranslate : Callback {
                         cbInfo.originalCallable.callOriginalMethod(cbInfo.originalString ?: "", cbInfo.userData)
                     } else if (cbInfo.userData is TextView) {
                         Utils.debugLog("$TAG: Network failure for TextView from batch (${(cbInfo.userData as TextView).hashCode()}), original text (${cbInfo.originalString}) remains.")
+                        // Mesmo em falha, se o userData é um TextView, é bom remover da pendência.
+                        // A tag não será setada pois o texto não mudou.
                     } else {
                         Utils.debugLog("$TAG: No suitable failure callback for batch item ${cbInfo.originalString}, userData: ${cbInfo.userData?.javaClass?.name}")
                     }
                 } catch (t: Throwable) {
                     Log.e(TAG, "Error executing originalCallable on batch failure for ${cbInfo.originalString}", t)
                 } finally {
-                    // **CORREÇÃO:** Remover a chave pendente independentemente do seu valor.
                     synchronized(Alltrans.pendingTextViewTranslations) {
                         if (Alltrans.pendingTextViewTranslations.remove(keyToRemoveFromPending)) {
                             Utils.debugLog("$TAG: Removed item hash ($keyToRemoveFromPending) from pending set after batch onFailure processing.")
@@ -300,8 +300,8 @@ class GetTranslate : Callback {
 
     override fun onFailure(call: Call, e: IOException) {
         val isBatchMicrosoft = PreferenceList.TranslatorProvider == "m" && stringsToBeTrans?.isNotEmpty() == true && callbackDataList?.isNotEmpty() == true
-        val localOriginalStringForSingle = stringToBeTrans // Only for single context
-        val localUserDataForSingle = userData // Only for single context
+        val localOriginalStringForSingle = stringToBeTrans
+        val localUserDataForSingle = userData
         val localOriginalCallableForSingle = originalCallable
         val localCanCallOriginalForSingle = canCallOriginal
 
@@ -309,15 +309,13 @@ class GetTranslate : Callback {
 
         if (isBatchMicrosoft) {
             handleBatchFailure(callbackDataList!!, "Network Error: ${e.message}")
-        } else { // Single translation failure
-            // Usa o pendingCompositeKey não-nulo da instância
+        } else {
             val keyToRemove = pendingCompositeKey
 
             Handler(Looper.getMainLooper()).postDelayed({
                 try {
                     if (localUserDataForSingle is TextView) {
                         Utils.debugLog("$TAG: Network failure for single TextView (key $keyToRemove), original text remains.")
-                        // Text remains original, no action needed on TextView text itself
                     } else if (localCanCallOriginalForSingle && localOriginalCallableForSingle != null) {
                         Utils.debugLog("$TAG: Calling originalCallable.callOriginalMethod on single failure for [$localOriginalStringForSingle]")
                         localOriginalCallableForSingle.callOriginalMethod(localOriginalStringForSingle.orEmpty(), localUserDataForSingle)
@@ -327,7 +325,6 @@ class GetTranslate : Callback {
                 } catch (t: Throwable) {
                     Log.e(TAG, "Error executing originalCallable on single failure for [$localOriginalStringForSingle]", t)
                 } finally {
-                    // **CORREÇÃO:** Remover a chave pendente independentemente do seu valor.
                     synchronized(Alltrans.pendingTextViewTranslations) {
                         if (Alltrans.pendingTextViewTranslations.remove(keyToRemove)) {
                             Utils.debugLog("$TAG: Removed item hash ($keyToRemove) from pending set after single onFailure.")
