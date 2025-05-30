@@ -12,7 +12,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of viybp GNU General Public License
  * along with AllTrans. If not, see <http://www.gnu.org/licenses/>.
  *
  */
@@ -121,7 +121,7 @@ class Alltrans : IXposedHookLoadPackage {
         }
 
         // Garantir que o cache seja inicializado corretamente
-        Alltrans.cache // Acessa o getter para garantir a inicialização, se ainda não ocorreu.
+        cache // Acessa o getter para garantir a inicialização, se ainda não ocorreu.
 
         // Aplica hooks para obter contexto e iniciar a lógica principal
         Utils.tryHookMethod(Application::class.java, "onCreate", AppOnCreateHookHandler())
@@ -345,7 +345,6 @@ class Alltrans : IXposedHookLoadPackage {
                             return
                         }
 
-                        // Fix para o primeiro warning - safely cast projection
                         val projectionArg = param.args[1]
                         val projection = if (projectionArg is Array<*>) {
                             @Suppress("UNCHECKED_CAST")
@@ -370,7 +369,6 @@ class Alltrans : IXposedHookLoadPackage {
                         } else if (paramTypes.size > 4) {
                             val selection = param.args[2] as String?
 
-                            // Fix para o segundo warning - safely cast selectionArgs
                             val selectionArgsArg = param.args[3]
                             val selectionArgs = if (selectionArgsArg is Array<*>) {
                                 @Suppress("UNCHECKED_CAST")
@@ -400,7 +398,7 @@ class Alltrans : IXposedHookLoadPackage {
                         XposedBridge.log("AllTrans Proxy Hook: Error during proxy query execution for URI $newUri: ${e.message}")
                         XposedBridge.log(e)
                         param.setResult(null)
-                        if (cursor != null && !cursor.isClosed) cursor.close()
+                        cursor?.close() // Safe call: if cursor is null, does nothing
                     } finally {
                         Binder.restoreCallingIdentity(ident)
                     }
@@ -443,37 +441,28 @@ class Alltrans : IXposedHookLoadPackage {
         XposedBridge.hookMethod(mCall, object : XC_MethodHook() {
             @Throws(Throwable::class)
             override fun beforeHookedMethod(param: MethodHookParam) {
-                // Removing unused variables declaration
                 val paramTypes = (param.method as Method).parameterTypes
                 val method: String?
 
                 if (paramTypes.size == 4 && paramTypes[0] == String::class.java && paramTypes[1] == String::class.java && paramTypes[2] == String::class.java) {
-                    // We don't need authority variable since it's not used
                     method = param.args[1] as String?
-                    // We don't need arg variable since it's not used
                     val extras = param.args[3] as Bundle?
-                    // Log apenas em debug ou quando for método relevante para AllTrans
                     if (PreferenceList.Debug || "alltransProxyCall" == method) {
                         XposedBridge.log("AllTrans Proxy Hook: Matched call signature (String, String, String, Bundle)")
                     }
-
                     handleProxyCall(param, method, extras)
                 } else if (paramTypes.size == 3 && paramTypes[0] == String::class.java && paramTypes[1] == String::class.java) {
                     method = param.args[0] as String?
-                    // We don't need arg variable since it's not used
                     val extras = param.args[2] as Bundle?
-                    // Log apenas em debug ou quando for método relevante para AllTrans
                     if (PreferenceList.Debug || "alltransProxyCall" == method) {
                         XposedBridge.log("AllTrans Proxy Hook: Matched call signature (String, String, Bundle)")
                     }
-
                     handleProxyCall(param, method, extras)
                 } else {
                     XposedBridge.log("AllTrans Proxy Hook: Unexpected SettingsProvider.call signature.")
                 }
             }
 
-            // Extracted repeated code to a separate method
             private fun handleProxyCall(param: MethodHookParam, method: String?, extras: Bundle?) {
                 if ("alltransProxyCall" == method) {
                     if (extras == null) {
@@ -500,7 +489,6 @@ class Alltrans : IXposedHookLoadPackage {
                     XposedBridge.log("AllTrans Proxy Hook: Intercepted call for $originalUri, Method: $originalMethod, Arg: $originalArg")
 
                     val ident = Binder.clearCallingIdentity()
-                    // Removing redundant initializer
                     var resultBundle: Bundle?
                     var providerContext: Context? = null
                     try {
@@ -569,22 +557,21 @@ class Alltrans : IXposedHookLoadPackage {
     }
 
     companion object {
-        val cacheAccess: Semaphore = Semaphore(1, true)
+        val cacheAccess: Semaphore = Semaphore(1, true) // Made val as it's not reassigned
 
         @SuppressLint("StaticFieldLeak")
-        val drawTextHook: DrawTextHookHandler = DrawTextHookHandler()
+        val drawTextHook: DrawTextHookHandler = DrawTextHookHandler() // Made val
 
         @SuppressLint("StaticFieldLeak")
-        val notifyHook: NotificationHookHandler = NotificationHookHandler()
+        val notifyHook: NotificationHookHandler = NotificationHookHandler() // Made val
 
-        // Alterado de HashMap para LruCache com inicialização thread-safe
-        const val CACHE_MAX_SIZE = 200
+        private const val CACHE_MAX_SIZE = 200 // Made private
         private var _cache: LruCache<String, String>? = null
 
         var cache: LruCache<String, String>?
             get() {
                 if (_cache == null) {
-                    synchronized(Alltrans::class.java) {
+                    synchronized(Alltrans::class.java) { // Use specific class lock
                         if (_cache == null) {
                             _cache = LruCache(CACHE_MAX_SIZE)
                             Utils.debugLog("AllTrans: LruCache inicializado com tamanho $CACHE_MAX_SIZE")
@@ -594,87 +581,88 @@ class Alltrans : IXposedHookLoadPackage {
                 return _cache
             }
             set(value) {
-                synchronized(Alltrans::class.java) {
+                synchronized(Alltrans::class.java) { // Use specific class lock
                     _cache = value
                 }
             }
 
         @SuppressLint("StaticFieldLeak")
-        var context: Context? = null
-        var baseRecordingCanvas: Class<*>? = null
-        var settingsHooked: Boolean = false
+        var context: Context? = null // Remains var as it's assigned later
+        var baseRecordingCanvas: Class<*>? = null // Remains var
+        var settingsHooked: Boolean = false // Remains var
 
-        var isProxyEnabled: Boolean = true
+        var isProxyEnabled: Boolean = true // Remains var
 
-        // Melhoria na definição do conjunto de traduções pendentes
         val pendingTextViewTranslations: MutableSet<Int> = Collections.synchronizedSet(
-            HashSet<Int>()
+            HashSet() // Removed explicit type argument
         )
 
-        // Inicialização com um valor pré-definido baseado em ID de recurso
-        // Evitando o uso de getIdentifier, que é desencorajado
-        private const val WEBVIEW_HOOK_TAG_KEY_DEFAULT: Int = 0x7f080001 // ID do recurso definido no XML
-        private var WEBVIEW_HOOK_TAG_KEY: Int = WEBVIEW_HOOK_TAG_KEY_DEFAULT
-        private var tagKeyInitialized = false
-        private var MODULE_PATH: String? = null
+        private const val WEBVIEW_HOOK_TAG_KEY_DEFAULT: Int = 0x7f080001
+        private var WEBVIEW_HOOK_TAG_KEY: Int = WEBVIEW_HOOK_TAG_KEY_DEFAULT // Remains var
+        private var tagKeyInitialized = false // Remains var
+        private var MODULE_PATH: String? = null // Remains var
+
+        private const val TAG_RESOURCE_NAME = "tag_alltrans_webview_hook"
+        private const val TAG_RESOURCE_TYPE = "id"
+
 
         val webViewHookInstances: MutableMap<WebView?, VirtWebViewOnLoad?> =
             Collections.synchronizedMap(
-                WeakHashMap<WebView?, VirtWebViewOnLoad?>()
+                WeakHashMap() // Removed explicit type arguments
             )
 
-        // Inicialização lazy thread-safe para o BatchTranslationManager
-        val batchManager: BatchTranslationManager by lazy {
-            synchronized(Alltrans::class.java) {
+        val batchManager: BatchTranslationManager by lazy { // Made val (by lazy implies val)
+            synchronized(Alltrans::class.java) { // Use specific class lock
                 BatchTranslationManager()
             }
         }
 
-        // Método estático auxiliar para inicializar a chave da tag
         @Synchronized
         fun initializeTagKeyIfNeeded() {
             if (!tagKeyInitialized && context != null && MODULE_PATH != null) {
+                var successfullyInitializedDynamicKey = false
                 try {
-                    XposedBridge.log("AllTrans: Attempting to initialize tag key...")
-                    val modRes: Resources = XModuleResources.createInstance(MODULE_PATH, null)
+                    XposedBridge.log("AllTrans: Attempting to initialize tag key dynamically...")
+                    val localModulePath = MODULE_PATH // Use local val
+                    if (localModulePath == null) { // Should not happen due to outer check but defensive
+                        XposedBridge.log("AllTrans: MODULE_PATH is null during dynamic key initialization.")
+                        return // Or handle fallback directly
+                    }
+                    val modRes: Resources = XModuleResources.createInstance(localModulePath, null)
+                    // The getIdentifier call is appropriate here for Xposed context
+                    val dynamicKey = modRes.getIdentifier(TAG_RESOURCE_NAME, TAG_RESOURCE_TYPE, "akhil.alltrans")
 
-                    try {
-                        // Usando diretamente o ID do recurso R.id.tag_alltrans_webview_hook
-                        // em vez de usar getIdentifier, que é mais eficiente
-                        // Nota: O valor real deveria vir do R.id.tag_alltrans_webview_hook em tempo de compilação
-
-                        // Atribuindo o valor pré-definido de WEBVIEW_HOOK_TAG_KEY_DEFAULT
-                        // Este valor deve ser definido no arquivo R.java em tempo de compilação
-                        WEBVIEW_HOOK_TAG_KEY = WEBVIEW_HOOK_TAG_KEY_DEFAULT
-                        tagKeyInitialized = true
+                    if (dynamicKey != 0) {
+                        WEBVIEW_HOOK_TAG_KEY = dynamicKey
+                        successfullyInitializedDynamicKey = true
                         XposedBridge.log(
-                            "AllTrans: Successfully initialized WEBVIEW_HOOK_TAG_KEY to: $WEBVIEW_HOOK_TAG_KEY (0x${Integer.toHexString(
-                                WEBVIEW_HOOK_TAG_KEY
-                            )})"
+                            "AllTrans: Successfully initialized WEBVIEW_HOOK_TAG_KEY dynamically to: $WEBVIEW_HOOK_TAG_KEY (0x${Integer.toHexString(WEBVIEW_HOOK_TAG_KEY)}) using resource '$TAG_RESOURCE_NAME'"
                         )
-                    } catch (t: Throwable) {
-                        // Se ocorrer exceção, usa o valor padrão e marca como inicializado
-                        XposedBridge.log("AllTrans: Error getting resource ID for WEBVIEW_HOOK_TAG_KEY, using fallback value. Details: ${t.message}")
-                        XposedBridge.log(t)
-                        WEBVIEW_HOOK_TAG_KEY = WEBVIEW_HOOK_TAG_KEY_DEFAULT // Ensure fallback is set
-                        tagKeyInitialized = true
+                    } else {
+                        XposedBridge.log("AllTrans: Resource ID for '$TAG_RESOURCE_NAME' not found via getIdentifier (returned 0). Using fallback.")
                     }
                 } catch (e: Resources.NotFoundException) {
-                    XposedBridge.log("AllTrans: XModuleResources.createInstance failed or resource not found for WEBVIEW_HOOK_TAG_KEY: ${e.message}")
+                    XposedBridge.log("AllTrans: XModuleResources.createInstance failed or resource not found for '$TAG_RESOURCE_NAME': ${e.message}")
                     XposedBridge.log(e)
-                    WEBVIEW_HOOK_TAG_KEY = WEBVIEW_HOOK_TAG_KEY_DEFAULT // Ensure fallback is set
-                    tagKeyInitialized = true
-                } catch (e: Exception) { // Catch broader exception as a fallback
-                    XposedBridge.log("AllTrans: Error initializing XModuleResources or getting tag key: ${e.message}")
+                } catch (e: Exception) {
+                    XposedBridge.log("AllTrans: Error initializing XModuleResources or getting dynamic tag key for '$TAG_RESOURCE_NAME': ${e.message}")
                     XposedBridge.log(e)
-                    // Marca como inicializado mesmo com erro para evitar tentativas repetidas
-                    WEBVIEW_HOOK_TAG_KEY = WEBVIEW_HOOK_TAG_KEY_DEFAULT // Ensure fallback is set
+                } finally { // Ensure tagKeyInitialized is set
                     tagKeyInitialized = true
+                    if (!successfullyInitializedDynamicKey) {
+                        WEBVIEW_HOOK_TAG_KEY = WEBVIEW_HOOK_TAG_KEY_DEFAULT
+                        XposedBridge.log(
+                            "AllTrans: Using fallback WEBVIEW_HOOK_TAG_KEY: $WEBVIEW_HOOK_TAG_KEY (0x${Integer.toHexString(WEBVIEW_HOOK_TAG_KEY)})"
+                        )
+                    }
                 }
+
             } else if (tagKeyInitialized) {
-                Utils.debugLog("AllTrans: Tag key already initialized: $WEBVIEW_HOOK_TAG_KEY")
+                Utils.debugLog("AllTrans: Tag key already initialized: $WEBVIEW_HOOK_TAG_KEY (0x${Integer.toHexString(WEBVIEW_HOOK_TAG_KEY)})")
             } else {
-                Utils.debugLog("AllTrans: Cannot initialize tag key yet, missing context ($context) or MODULE_PATH ($MODULE_PATH)")
+                val localContext = context // Use local val for logging
+                val localModulePath = MODULE_PATH // Use local val for logging
+                Utils.debugLog("AllTrans: Cannot initialize tag key yet, missing context ($localContext) or MODULE_PATH ($localModulePath)")
             }
         }
     }

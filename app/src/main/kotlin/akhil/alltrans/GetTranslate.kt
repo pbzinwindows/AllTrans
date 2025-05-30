@@ -217,15 +217,15 @@ class GetTranslate : Callback {
             } catch (e: Exception) {
                 Log.e(TAG, "Error in batch success callback for ${callbackInfo.originalString}", e)
             } finally {
-                // Remover a chave pendente se for diferente de 0
-                if (keyToRemoveFromPending != 0) {
-                    synchronized(Alltrans.pendingTextViewTranslations) {
-                        if (Alltrans.pendingTextViewTranslations.remove(keyToRemoveFromPending)) {
-                            Utils.debugLog("$TAG: Removed item hash ($keyToRemoveFromPending) from pending set after batch onResponse.")
-                        } else {
-                            // Se não conseguiu remover, pode ser que já tenha sido removido ou nunca foi adicionado
-                            Utils.debugLog("$TAG: Could not remove hash ($keyToRemoveFromPending) from pending set, may already be removed.")
-                        }
+                // **CORREÇÃO:** Remover a chave pendente independentemente do seu valor (se era 0 ou não)
+                // A lógica de adicionar a chave nos handlers (SetTextHookHandler, etc.) é que deve ser consistente.
+                // Se a chave '0' foi adicionada, ela deve ser removida.
+                synchronized(Alltrans.pendingTextViewTranslations) {
+                    if (Alltrans.pendingTextViewTranslations.remove(keyToRemoveFromPending)) {
+                        Utils.debugLog("$TAG: Removed item hash ($keyToRemoveFromPending) from pending set after batch onResponse.")
+                    } else {
+                        // Se não conseguiu remover, pode ser que já tenha sido removido ou nunca foi adicionado
+                        Utils.debugLog("$TAG: Could not remove hash ($keyToRemoveFromPending) from pending set, may already be removed or was never added (e.g. if key was 0 and BatchManager skipped it).")
                     }
                 }
             }
@@ -254,15 +254,12 @@ class GetTranslate : Callback {
             } catch (e: Exception) {
                 Log.e(TAG, "Error in single item callback for $originalString", e)
             } finally {
-                // Remover a chave pendente se for diferente de 0
-                if (keyToRemove != 0) {
-                    synchronized(Alltrans.pendingTextViewTranslations) {
-                        if (Alltrans.pendingTextViewTranslations.remove(keyToRemove)) {
-                            Utils.debugLog("$TAG: Removed item hash ($keyToRemove) from pending set after single onResponse.")
-                        } else {
-                            // Se não conseguiu remover, pode ser que já tenha sido removido ou nunca foi adicionado
-                            Utils.debugLog("$TAG: Could not remove hash ($keyToRemove) from pending set, may already be removed.")
-                        }
+                // **CORREÇÃO:** Remover a chave pendente independentemente do seu valor.
+                synchronized(Alltrans.pendingTextViewTranslations) {
+                    if (Alltrans.pendingTextViewTranslations.remove(keyToRemove)) {
+                        Utils.debugLog("$TAG: Removed item hash ($keyToRemove) from pending set after single onResponse.")
+                    } else {
+                        Utils.debugLog("$TAG: Could not remove hash ($keyToRemove) from pending set, may already be removed or was never added.")
                     }
                 }
             }
@@ -281,22 +278,19 @@ class GetTranslate : Callback {
                         Utils.debugLog("$TAG: Calling originalCallable for batch item ${cbInfo.originalString} on failure.")
                         cbInfo.originalCallable.callOriginalMethod(cbInfo.originalString ?: "", cbInfo.userData)
                     } else if (cbInfo.userData is TextView) {
-                        Utils.debugLog("$TAG: Network failure for TextView from batch (${cbInfo.userData.hashCode()}), original text (${cbInfo.originalString}) remains.")
+                        Utils.debugLog("$TAG: Network failure for TextView from batch (${(cbInfo.userData as TextView).hashCode()}), original text (${cbInfo.originalString}) remains.")
                     } else {
                         Utils.debugLog("$TAG: No suitable failure callback for batch item ${cbInfo.originalString}, userData: ${cbInfo.userData?.javaClass?.name}")
                     }
                 } catch (t: Throwable) {
                     Log.e(TAG, "Error executing originalCallable on batch failure for ${cbInfo.originalString}", t)
                 } finally {
-                    // Remover a chave pendente se for diferente de 0
-                    if (keyToRemoveFromPending != 0) {
-                        synchronized(Alltrans.pendingTextViewTranslations) {
-                            if (Alltrans.pendingTextViewTranslations.remove(keyToRemoveFromPending)) {
-                                Utils.debugLog("$TAG: Removed item hash ($keyToRemoveFromPending) from pending set after batch onFailure processing.")
-                            } else {
-                                // Se não conseguiu remover, pode ser que já tenha sido removido ou nunca foi adicionado
-                                Utils.debugLog("$TAG: Could not remove hash ($keyToRemoveFromPending) from pending set after batch failure, may already be removed.")
-                            }
+                    // **CORREÇÃO:** Remover a chave pendente independentemente do seu valor.
+                    synchronized(Alltrans.pendingTextViewTranslations) {
+                        if (Alltrans.pendingTextViewTranslations.remove(keyToRemoveFromPending)) {
+                            Utils.debugLog("$TAG: Removed item hash ($keyToRemoveFromPending) from pending set after batch onFailure processing.")
+                        } else {
+                            Utils.debugLog("$TAG: Could not remove hash ($keyToRemoveFromPending) from pending set after batch failure, may already be removed or was never added.")
                         }
                     }
                 }
@@ -322,7 +316,7 @@ class GetTranslate : Callback {
             Handler(Looper.getMainLooper()).postDelayed({
                 try {
                     if (localUserDataForSingle is TextView) {
-                        Utils.debugLog("$TAG: Network failure for single TextView ($keyToRemove), original text remains.")
+                        Utils.debugLog("$TAG: Network failure for single TextView (key $keyToRemove), original text remains.")
                         // Text remains original, no action needed on TextView text itself
                     } else if (localCanCallOriginalForSingle && localOriginalCallableForSingle != null) {
                         Utils.debugLog("$TAG: Calling originalCallable.callOriginalMethod on single failure for [$localOriginalStringForSingle]")
@@ -333,15 +327,12 @@ class GetTranslate : Callback {
                 } catch (t: Throwable) {
                     Log.e(TAG, "Error executing originalCallable on single failure for [$localOriginalStringForSingle]", t)
                 } finally {
-                    // Remover a chave pendente se for diferente de 0
-                    if (keyToRemove != 0) {
-                        synchronized(Alltrans.pendingTextViewTranslations) {
-                            if (Alltrans.pendingTextViewTranslations.remove(keyToRemove)) {
-                                Utils.debugLog("$TAG: Removed item hash ($keyToRemove) from pending set after single onFailure.")
-                            } else {
-                                // Se não conseguiu remover, pode ser que já tenha sido removido ou nunca foi adicionado
-                                Utils.debugLog("$TAG: Could not remove hash ($keyToRemove) from pending set after single failure, may already be removed.")
-                            }
+                    // **CORREÇÃO:** Remover a chave pendente independentemente do seu valor.
+                    synchronized(Alltrans.pendingTextViewTranslations) {
+                        if (Alltrans.pendingTextViewTranslations.remove(keyToRemove)) {
+                            Utils.debugLog("$TAG: Removed item hash ($keyToRemove) from pending set after single onFailure.")
+                        } else {
+                            Utils.debugLog("$TAG: Could not remove hash ($keyToRemove) from pending set after single failure, may already be removed or was never added.")
                         }
                     }
                 }

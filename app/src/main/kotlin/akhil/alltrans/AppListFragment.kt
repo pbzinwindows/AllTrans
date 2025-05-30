@@ -27,13 +27,13 @@ import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
 import java.util.*
+import kotlin.Comparator
 
 class AppListFragment : Fragment(), SearchableFragment {
 
     private var listview: ListView? = null
     private var loadingIndicator: CircularProgressIndicator? = null
     private var adapter: StableArrayAdapter? = null
-    // currentAppliedFilterQuery não é mais necessário aqui, o adapter será filtrado pelo observador da ViewModel
 
     private val mainViewModel: MainViewModel by activityViewModels()
 
@@ -42,12 +42,9 @@ class AppListFragment : Fragment(), SearchableFragment {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
-        // O estado do filtro é gerenciado pela MainViewModel agora
         Utils.debugLog("AppListFragment: onCreateView")
         return inflater.inflate(R.layout.apps_list, container, false)
     }
-
-    // onSaveInstanceState não é mais necessário para a query aqui
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -55,7 +52,8 @@ class AppListFragment : Fragment(), SearchableFragment {
         loadingIndicator = view.findViewById(R.id.loading_indicator)
         listview = view.findViewById(R.id.AppsList)
 
-        settings = requireActivity().getSharedPreferences("AllTransPref", Context.MODE_PRIVATE)
+        // Companion object property, can be accessed via class name
+        AppListFragment.settings = requireActivity().getSharedPreferences("AllTransPref", Context.MODE_PRIVATE)
 
         listview?.choiceMode = ListView.CHOICE_MODE_MULTIPLE
         listview?.isFastScrollEnabled = true
@@ -74,42 +72,24 @@ class AppListFragment : Fragment(), SearchableFragment {
             }
         }
 
-        // Observar a query de pesquisa da ViewModel para filtrar a lista
         viewLifecycleOwner.lifecycleScope.launch {
             mainViewModel.activeSearchQuery.collectLatest { query ->
                 Utils.debugLog("AppListFragment: Observed query from ViewModel: '$query'. Applying to adapter.")
-                // Aplica o filtro ao adapter. Se o adapter ainda não estiver pronto,
-                // loadPackagesAndSetupAdapter cuidará de aplicar o filtro inicial.
                 adapter?.filter?.filter(query)
             }
         }
-        // Carrega os pacotes. O filtro será aplicado pelo observador acima ou em loadPackagesAndSetupAdapter.
         loadPackagesAndSetupAdapter()
     }
 
     override fun onResume() {
         super.onResume()
         Utils.debugLog("AppListFragment: onResume.")
-        // Garante que a MainActivity saiba que este fragmento está ativo para mostrar o menu de pesquisa
         mainViewModel.updateCurrentFragmentType(MainViewModel.FragmentType.APPS)
-        // Se os dados precisarem ser recarregados CADA VEZ que o fragmento é resumido (ex: para pegar apps recém-instalados),
-        // descomente a linha abaixo. Caso contrário, carregar em onViewCreated pode ser suficiente.
-        // loadPackagesAndSetupAdapter() // Decida se isso é necessário aqui ou apenas em onViewCreated
     }
 
-    // Chamado pela MainActivity (através da interface SearchableFragment)
-    // Esta implementação é redundante se o fragmento já observa a ViewModel.
-    // A Activity atualiza a ViewModel, e o Fragment reage à ViewModel.
     override fun updateSearchQuery(query: String?) {
         Utils.debugLog("AppListFragment: updateSearchQuery (from SearchableFragment interface) called with: '$query'. ViewModel's query is '${mainViewModel.activeSearchQuery.value}'")
-        // A ViewModel é a fonte da verdade. Se a Activity chamar isso,
-        // é porque a ViewModel já foi (ou está sendo) atualizada.
-        // O observador de activeSearchQuery no fragmento deve lidar com isso.
-        // Para garantir uma resposta imediata, podemos filtrar aqui também,
-        // mas pode causar uma dupla filtragem se o collectLatest também disparar.
-        // if (adapter?.currentQuery != query) { // Precisaria de uma forma de saber a query atual do adapter
-        //    adapter?.filter?.filter(query)
-        // }
+        // ViewModel is the source of truth, observer should handle it.
     }
 
     private fun loadPackagesAndSetupAdapter() {
@@ -122,7 +102,7 @@ class AppListFragment : Fragment(), SearchableFragment {
             val freshLoadedPackages = withContext(Dispatchers.IO) {
                 Utils.debugLog("AppListFragment: Loading packages in IO thread...")
                 val pm = requireContext().packageManager
-                var packages = getInstalledApplications(requireContext())
+                var packages = getInstalledApplications(requireContext()) // remains var due to filter
                 if (Utils.isExpModuleActive(requireContext())) {
                     val packageNames = Utils.getExpApps(requireContext())
                     packages = packages.filter { appInfo -> packageNames.contains(appInfo.packageName) }.toMutableList()
@@ -140,14 +120,11 @@ class AppListFragment : Fragment(), SearchableFragment {
                 packages
             }
 
-            if (isAdded) {
+            if (isAdded) { // Check if fragment is still added
                 Utils.debugLog("AppListFragment: Packages loaded, creating/updating adapter with ${freshLoadedPackages.size} items.")
-                // Sempre criar um novo adapter ao carregar os pacotes garante que
-                // originalValues no adapter esteja sempre atualizado.
                 adapter = StableArrayAdapter(requireContext(), freshLoadedPackages)
                 listview?.adapter = adapter
 
-                // Aplica a query inicial da ViewModel após o adapter ser configurado
                 Utils.debugLog("AppListFragment: Applying initial ViewModel filter '$initialQueryFromViewModel' after new adapter set.")
                 adapter?.filter?.filter(initialQueryFromViewModel)
 
@@ -170,16 +147,15 @@ class AppListFragment : Fragment(), SearchableFragment {
         initialPackages: List<ApplicationInfo>
     ) : ArrayAdapter<ApplicationInfo>(context, R.layout.list_item, initialPackages) {
 
+        // originalValues is modified by updateOriginalDataAndFilter
         private var originalValues: List<ApplicationInfo> = ArrayList(initialPackages)
         private val pm: PackageManager = context.packageManager
         private val inflater: LayoutInflater = LayoutInflater.from(context)
 
-        // Este método agora é o principal para atualizar os dados base do adapter
-        // e refiltrar com a query fornecida (que virá da ViewModel).
         fun updateOriginalDataAndFilter(newPackages: List<ApplicationInfo>, currentQuery: String?) {
             Utils.debugLog("StableArrayAdapter: updateOriginalDataAndFilter with ${newPackages.size} packages. Query: '$currentQuery'")
-            this.originalValues = ArrayList(newPackages)
-            this.filter.filter(currentQuery) // Aplica o filtro sobre os novos dados base
+            this.originalValues = ArrayList(newPackages) // Re-assigning originalValues
+            this.filter.filter(currentQuery)
         }
 
         override fun getFilter(): Filter {
@@ -187,14 +163,14 @@ class AppListFragment : Fragment(), SearchableFragment {
                 override fun performFiltering(constraint: CharSequence?): FilterResults {
                     Utils.debugLog("StableArrayAdapter: performFiltering constraint: '$constraint', originalValues size: ${originalValues.size}")
                     val results = FilterResults()
-                    val valuesToFilterFrom = ArrayList(originalValues)
+                    val valuesToFilterFrom = ArrayList(originalValues) // Create a copy for filtering
                     val filterString = constraint?.toString()?.lowercase(Locale.getDefault())
 
                     if (filterString.isNullOrEmpty()) {
                         results.values = valuesToFilterFrom
                         results.count = valuesToFilterFrom.size
                     } else {
-                        val filteredList = ArrayList<ApplicationInfo>()
+                        val filteredList = ArrayList<ApplicationInfo>() // Explicit type for clarity
                         for (appInfo in valuesToFilterFrom) {
                             val appName = pm.getApplicationLabel(appInfo).toString().lowercase(Locale.getDefault())
                             val packageName = appInfo.packageName.lowercase(Locale.getDefault())
@@ -217,31 +193,32 @@ class AppListFragment : Fragment(), SearchableFragment {
                             addAll(results.values as List<ApplicationInfo>)
                         } catch (e: ClassCastException) {
                             Log.e("AppListFragment", "Error casting filter results", e)
+                            // Fallback to originalValues if constraint is empty, otherwise it might show an empty list on error
                             if (constraint.isNullOrEmpty()) addAll(ArrayList(originalValues))
                         }
-                    } else if (constraint.isNullOrEmpty()) {
+                    } else if (constraint.isNullOrEmpty()) { // Ensure list is repopulated if results are null and constraint is empty
                         addAll(ArrayList(originalValues))
                     }
-                    notifyDataSetChanged()
+                    notifyDataSetChanged() // Ensure UI updates
                     Utils.debugLog("StableArrayAdapter: publishResults finished. Adapter count: $count")
                 }
             }
         }
         override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-            val view: View
+            val currentView: View // Use val for the final assigned view
             val viewHolder: ViewHolder
 
             if (convertView == null) {
-                view = inflater.inflate(R.layout.list_item, parent, false)
+                currentView = inflater.inflate(R.layout.list_item, parent, false)
                 viewHolder = ViewHolder()
-                viewHolder.textView = view.findViewById(R.id.firstLine)
-                viewHolder.textView2 = view.findViewById(R.id.secondLine)
-                viewHolder.imageView = view.findViewById(R.id.icon)
-                viewHolder.checkBox = view.findViewById(R.id.checkBox)
-                view.tag = viewHolder
+                viewHolder.textView = currentView.findViewById(R.id.firstLine)
+                viewHolder.textView2 = currentView.findViewById(R.id.secondLine)
+                viewHolder.imageView = currentView.findViewById(R.id.icon)
+                viewHolder.checkBox = currentView.findViewById(R.id.checkBox)
+                currentView.tag = viewHolder
             } else {
-                view = convertView
-                viewHolder = view.tag as ViewHolder
+                currentView = convertView
+                viewHolder = currentView.tag as ViewHolder
             }
 
             val currentAppInfo = getItem(position)
@@ -252,12 +229,12 @@ class AppListFragment : Fragment(), SearchableFragment {
                 val icon = pm.getApplicationIcon(currentAppInfo)
 
                 viewHolder.textView?.text = label
-                viewHolder.textView?.isSelected = true
+                viewHolder.textView?.isSelected = true // for marquee
                 viewHolder.textView2?.text = packageName
-                viewHolder.textView2?.isSelected = true
+                viewHolder.textView2?.isSelected = true // for marquee
                 viewHolder.imageView?.setImageDrawable(icon)
 
-                viewHolder.checkBox?.tag = currentAppInfo
+                viewHolder.checkBox?.tag = currentAppInfo // Store app info for the click listener
                 viewHolder.checkBox?.isChecked = settings?.contains(packageName) == true
                 viewHolder.checkBox?.setOnClickListener { v ->
                     val checkBox = v as CheckBox
@@ -266,12 +243,13 @@ class AppListFragment : Fragment(), SearchableFragment {
                     Utils.debugLog("CheckBox clicked! $pkgName")
 
                     val globalEditor = settings?.edit()
+                    // Each app has its own preference file for local settings
                     val localSettings = requireActivity().getSharedPreferences(pkgName, Context.MODE_PRIVATE)
                     val localEditor = localSettings?.edit()
 
                     if (checkBox.isChecked) {
                         globalEditor?.putBoolean(pkgName, true)
-                        localEditor?.putBoolean("LocalEnabled", true)
+                        localEditor?.putBoolean("LocalEnabled", true) // Assuming "LocalEnabled" is a key in local prefs
                     } else {
                         globalEditor?.remove(pkgName)
                         localEditor?.putBoolean("LocalEnabled", false)
@@ -280,53 +258,68 @@ class AppListFragment : Fragment(), SearchableFragment {
                     localEditor?.apply()
                 }
             } else {
+                // Clear views if currentAppInfo is null (e.g. during filtering)
                 viewHolder.textView?.text = ""
                 viewHolder.textView2?.text = ""
                 viewHolder.imageView?.setImageDrawable(null)
-                viewHolder.checkBox?.setOnClickListener(null)
                 viewHolder.checkBox?.tag = null
                 viewHolder.checkBox?.isChecked = false
+                viewHolder.checkBox?.setOnClickListener(null)
             }
-            return view
+            return currentView
         }
     }
 
     private fun getInstalledApplications(context: Context): MutableList<ApplicationInfo> {
         val pm = context.packageManager
         try {
+            // PackageManager.GET_META_DATA is 0x00000080 (128)
             return pm.getInstalledApplications(PackageManager.GET_META_DATA)
         } catch (e: Exception) {
             Log.w("AppListFragment", "getInstalledApplications (modern) failed, using fallback.", e)
         }
-        val result: MutableList<ApplicationInfo> = ArrayList()
+
+        // Fallback method
+        val result: MutableList<ApplicationInfo> = ArrayList() // Explicit type for clarity
         var bufferedReader: BufferedReader? = null
         try {
             val process = Runtime.getRuntime().exec("pm list packages")
             bufferedReader = BufferedReader(InputStreamReader(process.inputStream))
             var line: String?
             while (bufferedReader.readLine().also { line = it } != null) {
-                val packageName = line?.substringAfter("package:", "")?.trim()
+                val currentLine = line // Use a val for the current line
+                val packageName = currentLine?.substringAfter("package:", "")?.trim()
                 if (!packageName.isNullOrEmpty()) {
                     try {
                         val applicationInfo = pm.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
                         result.add(applicationInfo)
-                    } catch (e: PackageManager.NameNotFoundException) { /* Ignorar */ }
-                    catch (e: Exception) {
+                    } catch (e: PackageManager.NameNotFoundException) {
+                        // Ignored: package listed but not found, could be uninstalling
+                    } catch (e: Exception) {
                         Log.e("AppListFragment", "Error getting app info during fallback for $packageName", e)
                     }
                 }
             }
-            process.waitFor()
-        } catch (e: Throwable) {
+            process.waitFor() // Wait for the process to complete
+        } catch (e: Throwable) { // Catch Throwable for broader error handling including InterruptedException
             Log.e("AppListFragment", "Error during fallback getInstalledApplications with 'pm list packages'", e)
         } finally {
-            try { bufferedReader?.close() } catch (e: IOException) { /* Ignorar */ }
+            try {
+                bufferedReader?.close()
+            } catch (e: IOException) {
+                // Ignored
+            }
         }
         Log.i("AppListFragment", "Fallback 'pm list packages' loaded ${result.size} packages.")
         return result
     }
 
     companion object {
-        private var settings: SharedPreferences? = null
+        // settings is accessed and potentially modified by multiple instances if not careful,
+        // but here it's likely a single AppListFragment. It's being assigned in onViewCreated.
+        // Making it truly static and initialized once might be better if it's meant to be a singleton preference access.
+        // However, for fragment-specific preferences that are re-read, this is okay.
+        // For "AllTransPref", it's a global preference, so a static field is fine.
+        var settings: SharedPreferences? = null
     }
 }
