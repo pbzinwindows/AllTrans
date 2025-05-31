@@ -565,16 +565,15 @@ class Alltrans : IXposedHookLoadPackage {
         @SuppressLint("StaticFieldLeak")
         val notifyHook: NotificationHookHandler = NotificationHookHandler() // Made val
 
-        private const val CACHE_MAX_SIZE = 200 // Made private
-        private var _cache: LruCache<String, String>? = null
+        private var _cache: MutableMap<String, String>? = null
 
-        var cache: LruCache<String, String>?
+        var cache: MutableMap<String, String>?
             get() {
                 if (_cache == null) {
                     synchronized(Alltrans::class.java) { // Use specific class lock
                         if (_cache == null) {
-                            _cache = LruCache(CACHE_MAX_SIZE)
-                            Utils.debugLog("AllTrans: LruCache inicializado com tamanho $CACHE_MAX_SIZE")
+                            _cache = HashMap()
+                            Utils.debugLog("AllTrans: HashMap cache initialized")
                         }
                     }
                 }

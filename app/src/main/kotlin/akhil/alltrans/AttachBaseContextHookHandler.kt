@@ -386,7 +386,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 try {
                     // Limpa o cache em memória (agora LruCache)
                     // O getter personalizado em Alltrans.kt garante que `Alltrans.cache` não seja nulo aqui.
-                    Alltrans.cache?.evictAll()
+                    Alltrans.cache?.clear()
                     Utils.debugLog("Caching is disabled for ${context.packageName}. In-memory LruCache evicted.")
 
                     // Excluir o arquivo de cache do disco também, pois o cache está desabilitado para este app.
@@ -456,7 +456,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                 // Limpar o cache existente (LruCache)
                 // O getter personalizado garante que cacheRef não seja nulo
                 val cacheRef = Alltrans.cache
-                cacheRef?.evictAll()
+                cacheRef?.clear()
 
                 try {
                     // Tenta criar o ObjectInputStream com verificação de validez
@@ -477,7 +477,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                                 Utils.debugLog("Skipping null key/value from disk cache: key=$key, value=$value")
                             }
                         }
-                        Utils.debugLog("Cache loaded successfully into LruCache. Size: ${cacheRef?.size() ?: 0}")
+                        Utils.debugLog("Cache loaded successfully into LruCache. Size: ${cacheRef?.size ?: 0}")
                     } else if (readObj is LruCache<*,*>) {
                         // Se o cache já estiver no formato LruCache (migrações futuras)
                         @Suppress("UNCHECKED_CAST")
@@ -490,7 +490,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                                 cacheRef?.put(key, value)
                             }
                         }
-                        Utils.debugLog("Cache loaded successfully from LruCache format. Size: ${cacheRef?.size() ?: 0}")
+                        Utils.debugLog("Cache loaded successfully from LruCache format. Size: ${cacheRef?.size ?: 0}")
                     }
                     else {
                         Utils.debugLog("Cache object is not of a recognized map type (HashMap or LruCache).")
@@ -791,7 +791,7 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
                         Utils.debugLog("Disk cache file 'AllTransCache' not found for ${context.packageName}, no need to delete.")
                     }
 
-                    Alltrans.cache?.evictAll() // Limpa o cache em memória (LruCache)
+                    Alltrans.cache?.clear() // Limpa o cache em memória (LruCache)
                     Utils.debugLog("In-memory LruCache evicted successfully due to local request for ${context.packageName}.")
 
                     // 2. ATUALIZAR o tempo da ÚLTIMA LIMPEZA EFETIVA para o timestamp do request atual

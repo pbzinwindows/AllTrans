@@ -29,244 +29,141 @@ import java.io.FileOutputStream
 import kotlin.math.min
 
 class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallable {
-    // Controle mais rigoroso de traduções processadas
-    private val processedTranslations = mutableMapOf<String, String>() // original -> translated
-    private val pendingTranslations = mutableSetOf<String>() // textos sendo traduzidos
-    private val webViewId = webViewInstance?.hashCode() ?: 0
-
     init {
-        Utils.debugLog("VirtWebViewOnLoad: Instance created for WebView: $webViewId")
+        Utils.debugLog("VirtWebViewOnLoad: Instance created for WebView: " + (if (webViewInstance != null) webViewInstance.hashCode() else "null"))
     }
 
     override fun callOriginalMethod(translatedString: CharSequence?, userData: Any?) {
         if (userData !is WebHookUserData2) {
-            Utils.debugLog("VirtWebViewOnLoad: Error - userData is not WebHookUserData2")
+            Utils.debugLog("VirtWebViewOnLoad: Error in callOriginalMethod - userData is not WebHookUserData2")
             return
         }
-
-        val webView = userData.webView
+        val webHookUserData2 = userData
+        val webView = webHookUserData2.webView
         if (webView == null) {
-            Utils.debugLog("VirtWebViewOnLoad: Error - webView from userData is null")
+            Utils.debugLog("VirtWebViewOnLoad: Error in callOriginalMethod - webView from userData is null")
             return
         }
 
-        val originalText = userData.stringArgs
-        val translatedText = translatedString?.toString()
+        val originalUnescaped = webHookUserData2.stringArgs
+        val translatedValue = translatedString.toString() // Usa valor não escapado para lógica Java
 
-        // Validações básicas
-        if (originalText.isNullOrEmpty() || translatedText.isNullOrEmpty()) {
-            Utils.debugLog("VirtWebViewOnLoad: Skipping - original or translated text is null/empty")
-            markNodeAsTranslated(webView, originalText)
-            pendingTranslations.remove(originalText)
+        if (translatedValue == null || originalUnescaped == null || translatedValue == originalUnescaped) {
+            Utils.debugLog("VirtWebViewOnLoad: Skipping JS injection in callOriginalMethod - translated string is null or same as original.")
+            markNodeAsTranslated(webView, originalUnescaped)
             return
         }
 
-        // Se a tradução é igual ao original, apenas marcar como traduzido
-        if (translatedText == originalText) {
-            Utils.debugLog("VirtWebViewOnLoad: Translation is same as original: [$originalText]")
-            markNodeAsTranslated(webView, originalText)
-            pendingTranslations.remove(originalText)
-            return
-        }
+        Utils.debugLog("VirtWebViewOnLoad: callOriginalMethod - Injecting JS to replace [" + originalUnescaped + "] with [" + translatedValue + "] in WebView " + webView.hashCode())
 
-        // Verificar se já processamos esta tradução específica
-        val existingTranslation = processedTranslations[originalText]
-        if (existingTranslation != null) {
-            if (existingTranslation == translatedText) {
-                Utils.debugLog("VirtWebViewOnLoad: Translation already processed: [$originalText] -> [$translatedText]")
-                pendingTranslations.remove(originalText)
-                return
-            } else {
-                Utils.debugLog("VirtWebViewOnLoad: Different translation for same text - Original: [$originalText], Previous: [$existingTranslation], New: [$translatedText]")
-            }
-        }
+        // Escapa as strings *apenas* para inserção segura no literal JS
+        val originalEscapedForJS = escapeJsString(originalUnescaped)
+        val translatedEscapedForJS = escapeJsString(translatedValue)
 
-        // Verificar duplicação no texto traduzido
-        if (translatedText.contains(originalText) && translatedText != originalText) {
-            val occurrences = translatedText.split(originalText).size - 1
-            if (occurrences > 1) {
-                Utils.debugLog("VirtWebViewOnLoad: Detected duplication in translation - Original: [$originalText], Translated: [$translatedText], Occurrences: $occurrences. Using original text.")
-                markNodeAsTranslated(webView, originalText)
-                pendingTranslations.remove(originalText)
-                return
-            }
-        }
-
-        // Registrar tradução processada
-        processedTranslations[originalText] = translatedText
-        pendingTranslations.remove(originalText)
-
-        Utils.debugLog("VirtWebViewOnLoad: Applying translation - [$originalText] -> [$translatedText] in WebView $webViewId")
-
-        // Aplicar tradução com script melhorado
-        applyTranslation(webView, originalText, translatedText)
-    }
-
-    private fun applyTranslation(webView: WebView, originalText: String, translatedText: String) {
-        val originalEscaped = escapeJsString(originalText)
-        val translatedEscaped = escapeJsString(translatedText)
-        val uniqueId = generateUniqueId(originalText)
-
-        val script = """
-            (function() {
-                var AllTransPlaceholderTypes = {
-                    'date': 0, 'datetime-local': 0, 'email': 0, 'month': 0,
-                    'number': 0, 'password': 0, 'tel': 0, 'time': 0,
-                    'url': 0, 'week': 0, 'search': 0, 'text': 0
-                };
-                var AllTransInputTypes = {
-                    'button': 0, 'reset': 0, 'submit': 0
-                };
-                
-                // Verificar se já foi processado com este ID único
-                var processedKey = 'alltrans_${uniqueId}';
-                if (window[processedKey]) {
-                    console.log('AllTrans: Translation already applied for: ${originalText.take(20)}...');
-                    return;
-                }
-                
-                function getAllTextNodes(doc) {
-                    var result = [];
-                    var ignore = {'STYLE': 0, 'SCRIPT': 0, 'NOSCRIPT': 0, 'IFRAME': 0, 'OBJECT': 0, 'CODE': 0, 'PRE': 0};
-                    
-                    function scanTree(node) {
-                        if (!node) return;
-                        
-                        // Pular nós já traduzidos
-                        if (node.nodeType === 1 && node.hasAttribute('data-alltrans-translated')) return;
-                        if (node.tagName && node.tagName in ignore) return;
-                        
-                        // Input elements
-                        if (node.tagName && node.tagName.toLowerCase() === 'input') {
-                            if ((node.type in AllTransInputTypes || node.type in AllTransPlaceholderTypes) && 
-                                !node.hasAttribute('data-alltrans-translated')) {
-                                result.push(node);
-                            }
-                        }
-                        
-                        // Processar filhos
-                        if (node.childNodes && node.childNodes.length) {
-                            for (var i = 0; i < node.childNodes.length; i++) {
-                                scanTree(node.childNodes[i]);
-                            }
-                        } else if (node.nodeType === 3) {
-                            // Text nodes
-                            if (!node.parentElement || !node.parentElement.hasAttribute('data-alltrans-translated')) {
-                                result.push(node);
-                            }
-                        }
-                    }
-                    
-                    scanTree(doc);
-                    return result;
-                }
-                
-                function replaceText(nodes, original, translated) {
-                    var replacedCount = 0;
-                    var originalTrimmed = original.trim();
-                    
-                    for (var i = 0; i < nodes.length; i++) {
-                        var node = nodes[i];
-                        if (!node) continue;
-                        
-                        try {
-                            var replaced = false;
-                            var elementToMark = null;
-                            
-                            // Input placeholder
-                            if (node.tagName && node.tagName.toLowerCase() === 'input' && 
-                                node.type in AllTransPlaceholderTypes) {
-                                if (node.placeholder && node.placeholder.trim() === originalTrimmed) {
-                                    node.placeholder = translated;
-                                    elementToMark = node;
-                                    replaced = true;
-                                }
-                            }
-                            // Input value
-                            else if (node.tagName && node.tagName.toLowerCase() === 'input' && 
-                                     node.type in AllTransInputTypes) {
-                                if (node.value && node.value.trim() === originalTrimmed) {
-                                    node.value = translated;
-                                    elementToMark = node;
-                                    replaced = true;
-                                }
-                            }
-                            // Text node
-                            else if (node.nodeType === 3 && node.nodeValue) {
-                                if (node.nodeValue.trim() === originalTrimmed) {
-                                    node.nodeValue = translated;
-                                    elementToMark = node.parentElement;
-                                    replaced = true;
-                                }
-                            }
-                            
-                            // Marcar como traduzido
-                            if (replaced && elementToMark && elementToMark.setAttribute) {
-                                elementToMark.setAttribute('data-alltrans-translated', 'true');
-                                elementToMark.setAttribute('data-alltrans-original', original);
-                                elementToMark.setAttribute('data-alltrans-id', '${uniqueId}');
-                                replacedCount++;
-                            }
-                        } catch (e) {
-                            console.error('AllTrans: Error replacing text:', e);
-                        }
-                    }
-                    
-                    return replacedCount;
-                }
-                
-                var originalText = $originalEscaped;
-                var translatedText = $translatedEscaped;
-                var totalReplaced = 0;
-                
-                // Processar documento principal
-                try {
-                    var mainNodes = getAllTextNodes(document);
-                    totalReplaced += replaceText(mainNodes, originalText, translatedText);
-                } catch (e) {
-                    console.error('AllTrans: Error processing main document:', e);
-                }
-                
-                // Processar frames
-                try {
-                    for (var j = 0; j < window.frames.length; j++) {
-                        try {
-                            var frameDoc = window.frames[j].document;
-                            if (frameDoc) {
-                                var frameNodes = getAllTextNodes(frameDoc);
-                                totalReplaced += replaceText(frameNodes, originalText, translatedText);
-                            }
-                        } catch (frameError) {
-                            console.warn('AllTrans: Error accessing frame ' + j + ':', frameError);
-                        }
-                    }
-                } catch (e) {
-                    console.error('AllTrans: Error processing frames:', e);
-                }
-                
-                // Marcar como processado
-                if (totalReplaced > 0) {
-                    window[processedKey] = true;
-                    console.log('AllTrans: Replaced ' + totalReplaced + ' occurrences of: ' + originalText.substring(0, 30) + '...');
-                }
-            })();
-        """.trimIndent()
+        // Script JS de Substituição (com marcação data-Alltrans-translated)
+        val script = (""
+                + "var AllTransPlaceholderTypes = {\n"
+                + "    'date': 0, 'datetime-local': 0, 'email': 0, 'month': 0,\n"
+                + "    'number': 0, 'password': 0, 'tel': 0, 'time': 0,\n"
+                + "    'url': 0, 'week': 0, 'search': 0, 'text': 0\n"
+                + "};\n"
+                + "var AllTransInputTypes = {\n"
+                + "  'button': 0, 'reset': 0, 'submit': 0\n"
+                + "};\n"
+                + "\n"
+                + "function allTransGetAllTextNodes(tempDocument) {\n" // Função de busca inalterada nesta parte
+                + "  var result = [];\n"
+                + "  var ignore = {'STYLE': 0, 'SCRIPT': 0, 'NOSCRIPT': 0, 'IFRAME': 0, 'OBJECT': 0};\n"
+                + "  (function scanSubTree(node) {\n"
+                + "    if (!node) return;\n"
+                + "    if (node.nodeType === 1 && node.hasAttribute('data-Alltrans-translated')) { return; }\n"
+                + "    if (node.tagName && node.tagName in ignore) { return; }\n"
+                + "    if (node.tagName && node.tagName.toLowerCase() == 'input' && (node.type in AllTransInputTypes || node.type in AllTransPlaceholderTypes)) {\n"
+                + "      if (!node.hasAttribute('data-Alltrans-translated')) { result.push(node); }\n"
+                + "    }\n"
+                + "    if (node.childNodes && node.childNodes.length) {\n"
+                + "      for (var i = 0; i < node.childNodes.length; i++) { scanSubTree(node.childNodes[i]); }\n"
+                + "    } else if (node.nodeType == 3) {\n"
+                + "      if (!node.parentElement || !node.parentElement.hasAttribute('data-Alltrans-translated')) { result.push(node); }\n"
+                + "    }\n"
+                + "  })(tempDocument);\n"
+                + "  return result;\n"
+                + "}\n"
+                + "\n" // --- Função JS de Substituição Modificada (com marcação) ---
+                + "function allTransDoReplaceAllFinal(all, originalText, translatedText) {\n"
+                + "  if (!all) return;\n"
+                + "  var replacedCount = 0;\n"
+                + "  var originalTrimmed = originalText.trim();\n"
+                + "  console.log('AllTrans JS Replace: Target Original (Trimmed): \"' + originalTrimmed + '\"');\n"
+                + "  for (var i = 0, max = all.length; i < max; i++) {\n"
+                + "    var currentNode = all[i];\n"
+                + "    if (!currentNode) continue;\n"
+                + "    try {\n"
+                + "      var elementToMark = null;\n"
+                + "      var currentValue = null;\n"
+                + "      if (currentNode.tagName && currentNode.tagName.toLowerCase() == 'input' && currentNode.type in AllTransPlaceholderTypes) {\n"
+                + "        currentValue = currentNode.placeholder;\n"
+                + "        if (currentValue && currentValue.trim() === originalTrimmed) {\n"
+                + "          console.log('AllTrans JS Replace: Match found in placeholder!');\n"
+                + "          currentNode.placeholder = translatedText;\n"
+                + "          elementToMark = currentNode;\n"
+                + "          replacedCount++;\n"
+                + "        }\n"
+                + "      } else if (currentNode.nodeType == 3 && currentNode.nodeValue) {\n"
+                + "        currentValue = currentNode.nodeValue;\n"
+                + "        if (currentValue.trim() === originalTrimmed) {\n"
+                + "          console.log('AllTrans JS Replace: Match found in text node!');\n"
+                + "          currentNode.nodeValue = translatedText;\n"
+                + "          elementToMark = currentNode.parentElement;\n"
+                + "          replacedCount++;\n"
+                + "        }\n"
+                + "      } else if (currentNode.tagName && currentNode.tagName.toLowerCase() == 'input' && currentNode.type in AllTransInputTypes) {\n"
+                + "        currentValue = currentNode.value;\n"
+                + "        if (currentValue && currentValue.trim() === originalTrimmed) {\n"
+                + "          console.log('AllTrans JS Replace: Match found in input value!');\n"
+                + "          currentNode.value = translatedText;\n"
+                + "          elementToMark = currentNode;\n"
+                + "          replacedCount++;\n"
+                + "        }\n"
+                + "      }\n" // --- CORREÇÃO DA ASPAS ---
+                + "      // Adiciona o atributo se um elemento foi modificado e é válido\n"
+                + "      if (elementToMark && typeof elementToMark.setAttribute === 'function') {\n"
+                + "          elementToMark.setAttribute('data-Alltrans-translated', 'true');\n"
+                + "      }\n"
+                + "    } catch (e) { console.error('AllTrans JS Error replacing node:', e); }\n"
+                + "  }\n"
+                + "  console.log('AllTrans JS Replace: Finished attempt for original: \"' + originalText + '\", replaced nodes: ' + replacedCount);\n"
+                + "}\n"
+                + "\n"
+                + "var originalToMatch = " + originalEscapedForJS + ";\n" // --- CORREÇÃO DO PONTO E VÍRGULA ---
+                + "var translatedValue = " + translatedEscapedForJS + ";\n"
+                + "\n"
+                + "try {\n"
+                + "  for (var j = 0; j < window.frames.length; j++) {\n"
+                + "    try {\n"
+                + "      var frameDoc = window.frames[j].document;\n"
+                + "      if (frameDoc) {\n"
+                + "        var allFrameNodes = allTransGetAllTextNodes(frameDoc);\n"
+                + "        allTransDoReplaceAllFinal(allFrameNodes, originalToMatch, translatedValue);\n"
+                + "      }\n"
+                + "    } catch (frameError) { console.warn('AllTrans JS Error accessing frame ' + j + ':', frameError); }\n"
+                + "  }\n"
+                + "} catch (e) { console.error('AllTrans JS Error iterating frames:', e); }\n"
+                + "\n"
+                + "try {\n"
+                + "  var allMainNodes = allTransGetAllTextNodes(window.document);\n"
+                + "  allTransDoReplaceAllFinal(allMainNodes, originalToMatch, translatedValue);\n"
+                + "} catch (e) { console.error('AllTrans JS Error replacing main document nodes:', e); }\n") // Ponto e vírgula final opcional
 
         myEvaluateJavaScript(webView, script)
     }
 
-    private fun generateUniqueId(text: String): String {
-        // Gerar ID único baseado no hash do texto + timestamp
-        val hash = text.hashCode().toString(36)
-        val timestamp = (System.currentTimeMillis() % 100000).toString(36)
-        return "${hash}_${timestamp}"
-    }
-
+    // Função auxiliar para escapar strings para uso DENTRO de literais JS
     private fun escapeJsString(value: String?): String {
-        if (value == null) return "null"
-
-        val escaped = value
-            .replace("\\", "\\\\")
+        if (value == null) {
+            return "null"
+        }
+        val escaped = value.replace("\\", "\\\\")
             .replace("'", "\\'")
             .replace("\"", "\\\"")
             .replace("\n", "\\n")
@@ -274,396 +171,347 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
             .replace("\t", "\\t")
             .replace("\b", "\\b")
             .replace("\u000c", "\\f")
-
-        return "'$escaped'"
+        return "'" + escaped + "'"
     }
 
+
+    // --- Nova função auxiliar para marcar nós como traduzidos ---
     private fun markNodeAsTranslated(webView: WebView?, originalText: String?) {
         if (webView == null || originalText == null) return
+        Utils.debugLog("VirtWebViewOnLoad: Marking nodes with original text [" + originalText + "] as translated in WebView " + webView.hashCode())
+        val originalEscapedForJS = escapeJsString(originalText)
 
-        Utils.debugLog("VirtWebViewOnLoad: Marking nodes as translated: [$originalText] in WebView $webViewId")
-        val originalEscaped = escapeJsString(originalText)
-        val uniqueId = generateUniqueId(originalText)
-
-        val script = """
-            (function() {
-                var processedKey = 'alltrans_mark_${uniqueId}';
-                if (window[processedKey]) return;
-                
-                function markNodes(doc) {
-                    var walker = document.createTreeWalker(doc, NodeFilter.SHOW_ALL);
-                    var node;
-                    var originalTrimmed = $originalEscaped.trim();
-                    var markedCount = 0;
-                    
-                    while (node = walker.nextNode()) {
-                        try {
-                            if (node.nodeType === 1 && node.hasAttribute('data-alltrans-translated')) continue;
-                            
-                            var shouldMark = false;
-                            var elementToMark = null;
-                            
-                            if (node.tagName && node.tagName.toLowerCase() === 'input') {
-                                if (node.placeholder && node.placeholder.trim() === originalTrimmed) {
-                                    shouldMark = true;
-                                    elementToMark = node;
-                                } else if (node.value && node.value.trim() === originalTrimmed) {
-                                    shouldMark = true;
-                                    elementToMark = node;
-                                }
-                            } else if (node.nodeType === 3 && node.nodeValue && node.nodeValue.trim() === originalTrimmed) {
-                                shouldMark = true;
-                                elementToMark = node.parentElement;
-                            }
-                            
-                            if (shouldMark && elementToMark && elementToMark.setAttribute) {
-                                elementToMark.setAttribute('data-alltrans-translated', 'true');
-                                elementToMark.setAttribute('data-alltrans-original', $originalEscaped);
-                                elementToMark.setAttribute('data-alltrans-id', '${uniqueId}');
-                                markedCount++;
-                            }
-                        } catch (e) {
-                            console.error('AllTrans: Error marking node:', e);
-                        }
-                    }
-                    
-                    return markedCount;
-                }
-                
-                var totalMarked = 0;
-                
-                // Marcar no documento principal
-                try {
-                    totalMarked += markNodes(document);
-                } catch (e) {
-                    console.error('AllTrans: Error marking main document:', e);
-                }
-                
-                // Marcar em frames
-                try {
-                    for (var j = 0; j < window.frames.length; j++) {
-                        try {
-                            var frameDoc = window.frames[j].document;
-                            if (frameDoc) {
-                                totalMarked += markNodes(frameDoc);
-                            }
-                        } catch (frameError) {
-                            console.warn('AllTrans: Error marking frame ' + j + ':', frameError);
-                        }
-                    }
-                } catch (e) {
-                    console.error('AllTrans: Error marking frames:', e);
-                }
-                
-                if (totalMarked > 0) {
-                    window[processedKey] = true;
-                    console.log('AllTrans: Marked ' + totalMarked + ' nodes for: ' + $originalEscaped.substring(0, 30) + '...');
-                }
-            })();
-        """.trimIndent()
+        val script = (""
+                + "var AllTransPlaceholderTypes = { 'date': 0, 'datetime-local': 0, 'email': 0, 'month': 0, 'number': 0, 'password': 0, 'tel': 0, 'time': 0, 'url': 0, 'week': 0, 'search': 0, 'text': 0 };\n"
+                + "var AllTransInputTypes = { 'button': 0, 'reset': 0, 'submit': 0 };\n"
+                + "\n"
+                + "function allTransGetAllTextNodes(tempDocument) {\n"
+                + "  var result = [];\n"
+                + "  var ignore = {'STYLE': 0, 'SCRIPT': 0, 'NOSCRIPT': 0, 'IFRAME': 0, 'OBJECT': 0};\n"
+                + "  (function scanSubTree(node) {\n"
+                + "    if (!node) return;\n"
+                + "    if (node.nodeType === 1 && node.hasAttribute('data-Alltrans-translated')) { return; }\n"
+                + "    if (node.tagName && node.tagName in ignore) { return; }\n"
+                + "    if (node.tagName && node.tagName.toLowerCase() == 'input' && (node.type in AllTransInputTypes || node.type in AllTransPlaceholderTypes)) {\n"
+                + "      if (!node.hasAttribute('data-Alltrans-translated')) { result.push(node); }\n"
+                + "    }\n"
+                + "    if (node.childNodes && node.childNodes.length) {\n"
+                + "      for (var i = 0; i < node.childNodes.length; i++) { scanSubTree(node.childNodes[i]); }\n"
+                + "    } else if (node.nodeType == 3) {\n"
+                + "      if (!node.parentElement || !node.parentElement.hasAttribute('data-Alltrans-translated')) { result.push(node); }\n"
+                + "    }\n"
+                + "  })(tempDocument);\n"
+                + "  return result;\n"
+                + "}\n"
+                + "\n"
+                + "function allTransMarkNodes(all, originalText) {\n"
+                + "  if (!all) return;\n"
+                + "  var markedCount = 0;\n"
+                + "  var originalTrimmed = originalText.trim();\n"
+                + "  for (var i = 0, max = all.length; i < max; i++) {\n"
+                + "    var currentNode = all[i];\n"
+                + "    if (!currentNode) continue;\n"
+                + "    try {\n"
+                + "      var elementToMark = null;\n"
+                + "      var currentValue = null;\n"
+                + "      if (currentNode.tagName && currentNode.tagName.toLowerCase() == 'input' && currentNode.type in AllTransPlaceholderTypes) {\n"
+                + "        currentValue = currentNode.placeholder;\n"
+                + "        if (currentValue && currentValue.trim() === originalTrimmed) { elementToMark = currentNode; }\n"
+                + "      } else if (currentNode.nodeType == 3 && currentNode.nodeValue) {\n"
+                + "        currentValue = currentNode.nodeValue;\n"
+                + "        if (currentValue.trim() === originalTrimmed) { elementToMark = currentNode.parentElement; }\n"
+                + "      } else if (currentNode.tagName && currentNode.tagName.toLowerCase() == 'input' && currentNode.type in AllTransInputTypes) {\n"
+                + "        currentValue = currentNode.value;\n"
+                + "        if (currentValue && currentValue.trim() === originalTrimmed) { elementToMark = currentNode; }\n"
+                + "      }\n"
+                + "      if (elementToMark && typeof elementToMark.setAttribute === 'function') {\n"
+                + "          elementToMark.setAttribute('data-Alltrans-translated', 'true');\n"
+                + "          markedCount++;\n"
+                + "      }\n"
+                + "    } catch (e) { console.error('AllTrans JS Error marking node:', e); }\n"
+                + "  }\n"
+                + "  console.log('AllTrans JS Mark: Finished attempt for original: \"' + originalText + '\", marked nodes: ' + markedCount);\n"
+                + "}\n"
+                + "\n"
+                + "var originalToMatch = " + originalEscapedForJS + ";\n"
+                + "\n"
+                + "try {\n"
+                + "  for (var j = 0; j < window.frames.length; j++) {\n"
+                + "    try {\n"
+                + "      var frameDoc = window.frames[j].document;\n"
+                + "      if (frameDoc) {\n"
+                + "        var allFrameNodes = allTransGetAllTextNodes(frameDoc);\n"
+                + "        allTransMarkNodes(allFrameNodes, originalToMatch);\n"
+                + "      }\n"
+                + "    } catch (frameError) { console.warn('AllTrans JS Error accessing frame ' + j + ' for marking:', frameError); }\n"
+                + "  }\n"
+                + "} catch (e) { console.error('AllTrans JS Error iterating frames for marking:', e); }\n"
+                + "\n"
+                + "try {\n"
+                + "  var allMainNodes = allTransGetAllTextNodes(window.document);\n"
+                + "  allTransMarkNodes(allMainNodes, originalToMatch);\n"
+                + "} catch (e) { console.error('AllTrans JS Error marking main document nodes:', e); }\n")
 
         myEvaluateJavaScript(webView, script)
     }
 
+
+    // --- Fim da nova função ---
     @SuppressLint("JavascriptInterface", "AddJavascriptInterface")
     @Throws(Throwable::class)
     fun afterOnLoadMethod(webView: WebView) {
-        Utils.debugLog("VirtWebViewOnLoad: afterOnLoadMethod ENTERED for WebView: $webViewId")
+        Utils.debugLog("VirtWebViewOnLoad: afterOnLoadMethod ENTERED for WebView: " + webView.hashCode())
+        Utils.debugLog("we are in onPageFinished!")
 
-        // Limpar estado quando página carrega
-        processedTranslations.clear()
-        pendingTranslations.clear()
-
-        val scriptFrames = "console.log('AllTrans: Frames count: ' + window.frames.length)"
+        val scriptFrames = "console.log(\"AllTrans: Frames is \"+window.frames.length)"
         myEvaluateJavaScript(webView, scriptFrames)
 
-        val initScript = """
-            console.log('AllTrans: Initializing...');
-            
-            // Limpar marcadores antigos
-            if (window.AllTransProcessedTexts) {
-                window.AllTransProcessedTexts.clear();
-            }
-            window.AllTransProcessedTexts = new Set();
-            
-            var AllTransPlaceholderTypes = {
-                'date': 0, 'datetime-local': 0, 'email': 0, 'month': 0,
-                'number': 0, 'password': 0, 'tel': 0, 'time': 0,
-                'url': 0, 'week': 0, 'search': 0, 'text': 0
-            };
-            var AllTransInputTypes = {
-                'button': 0, 'reset': 0, 'submit': 0
-            };
-            
-            // Regex patterns para filtrar textos desnecessários
-            var AllTransNumericRegex = /^[+-]?\d+(\.\d+)?$/;
-            var AllTransUrlLikeRegex = /^(http|https):\/\/.*|[^\s]+\.[^\s]+$/;
-            var AllTransAcronymRegex = /^[A-Z0-9_\-:]+$/;
-            
-            function getAllTextNodes(doc) {
-                var result = [];
-                var ignore = {'STYLE': 0, 'SCRIPT': 0, 'NOSCRIPT': 0, 'IFRAME': 0, 'OBJECT': 0, 'CODE': 0, 'PRE': 0};
-                
-                function scanTree(node) {
-                    if (!node) return;
-                    if (node.nodeType === 1 && node.hasAttribute('data-alltrans-translated')) return;
-                    if (node.tagName && node.tagName in ignore) return;
-                    
-                    if (node.tagName && node.tagName.toLowerCase() === 'input' && 
-                        (node.type in AllTransInputTypes || node.type in AllTransPlaceholderTypes)) {
-                        if (!node.hasAttribute('data-alltrans-translated')) {
-                            result.push(node);
-                        }
-                    }
-                    
-                    if (node.childNodes && node.childNodes.length) {
-                        for (var i = 0; i < node.childNodes.length; i++) {
-                            scanTree(node.childNodes[i]);
-                        }
-                    } else if (node.nodeType === 3) {
-                        if (!node.parentElement || !node.parentElement.hasAttribute('data-alltrans-translated')) {
-                            result.push(node);
-                        }
-                    }
-                }
-                
-                scanTree(doc);
-                return result;
-            }
-            
-            function processNodes(nodes) {
-                var textsToTranslate = new Set();
-                
-                for (var i = 0; i < nodes.length; i++) {
-                    var node = nodes[i];
-                    if (!node) continue;
-                    
-                    try {
-                        var text = null;
-                        
-                        if (node.tagName && node.tagName.toLowerCase() === 'input') {
-                            if (node.type in AllTransPlaceholderTypes) {
-                                text = node.placeholder;
-                            } else if (node.type in AllTransInputTypes) {
-                                text = node.value;
-                            }
-                        } else if (node.nodeType === 3) {
-                            text = node.nodeValue;
-                        }
-                        
-                        if (text && text.trim() !== '') {
-                            var trimmed = text.trim();
-                            
-                            // Verificar se já foi processado
-                            if (window.AllTransProcessedTexts.has(trimmed)) continue;
-                            
-                            // Filtros de qualidade
-                            if (trimmed.length < 2) continue;
-                            if (AllTransNumericRegex.test(trimmed)) continue;
-                            if (trimmed.length > 5 && AllTransUrlLikeRegex.test(trimmed) && trimmed.indexOf(' ') === -1) continue;
-                            if (trimmed.length < 6 && AllTransAcronymRegex.test(trimmed)) continue;
-                            
-                            // Adicionar ao conjunto de processados
-                            window.AllTransProcessedTexts.add(trimmed);
-                            textsToTranslate.add(text);
-                        }
-                    } catch (e) {
-                        console.error('AllTrans: Error processing node:', e);
-                    }
-                }
-                
-                // Enviar textos para tradução
-                textsToTranslate.forEach(function(text) {
-                    try {
-                        injectedObject.showLog(text);
-                    } catch (e) {
-                        console.error('AllTrans: Error calling showLog:', e);
-                    }
-                });
-            }
-            
-            function doScan() {
-                if (window.AllTransScanning) return;
-                window.AllTransScanning = true;
-                
-                console.log('AllTrans: Starting scan...');
-                
-                try {
-                    // Processar documento principal
-                    var mainNodes = getAllTextNodes(document);
-                    processNodes(mainNodes);
-                    
-                    // Processar frames
-                    for (var j = 0; j < window.frames.length; j++) {
-                        try {
-                            var frameDoc = window.frames[j].document;
-                            if (frameDoc) {
-                                var frameNodes = getAllTextNodes(frameDoc);
-                                processNodes(frameNodes);
-                            }
-                        } catch (frameError) {
-                            console.warn('AllTrans: Error scanning frame ' + j + ':', frameError);
-                        }
-                    }
-                } catch (e) {
-                    console.error('AllTrans: Error during scan:', e);
-                } finally {
-                    window.AllTransScanning = false;
-                }
-                
-                console.log('AllTrans: Scan completed');
-            }
-            
-            // Configurar observador de mutações
-            if (!window.AllTransObserver) {
-                console.log('AllTrans: Setting up MutationObserver');
-                
-                var MutationObserver = window.MutationObserver || window.WebKitMutationObserver;
-                if (MutationObserver) {
-                    window.AllTransObserver = new MutationObserver(function(mutations) {
-                        if (window.AllTransTimeout) {
-                            clearTimeout(window.AllTransTimeout);
-                        }
-                        window.AllTransTimeout = setTimeout(doScan, 500);
-                    });
-                    
-                    try {
-                        window.AllTransObserver.observe(document, {
-                            subtree: true,
-                            childList: true,
-                            characterData: true
-                        });
-                        console.log('AllTrans: MutationObserver started');
-                    } catch (e) {
-                        console.error('AllTrans: Error starting MutationObserver:', e);
-                    }
-                } else {
-                    console.warn('AllTrans: MutationObserver not supported');
-                }
-            }
-            
-            // Executar scan inicial
-            setTimeout(doScan, ${PreferenceList.DelayWebView});
-            console.log('AllTrans: Initialization complete');
-        """.trimIndent()
+        // Script JS inicial (com filtros e verificação de marca)
+        val script = (""
+                + "console.log('AllTrans: Initializing JS...');\n"
+                + "\n"
+                + "var AllTransPlaceholderTypes = {\n"
+                + "    'date': 0, 'datetime-local': 0, 'email': 0, 'month': 0,\n"
+                + "    'number': 0, 'password': 0, 'tel': 0, 'time': 0,\n"
+                + "    'url': 0, 'week': 0, 'search': 0, 'text': 0\n"
+                + "};\n"
+                + "var AllTransInputTypes = {\n"
+                + "  'button': 0, 'reset': 0, 'submit': 0\n"
+                + "};\n"
+                + "\n"
+                + "var AllTransNumericRegex = /^[+-]?\\d+(\\.\\d+)?$/;\n"
+                + "var AllTransUrlLikeRegex = /^(http|https):\\/\\/.*|[^\\s]+\\.[^\\s]+$/;\n"
+                + "var AllTransAcronymRegex = /^[A-Z0-9_\\-:]+$/;\n"
+                + "\n"
+                + "function allTransGetAllTextNodes(tempDocument) {\n"
+                + "    var result = [];\n"
+                + "    var ignore = {'STYLE': 0, 'SCRIPT': 0, 'NOSCRIPT': 0, 'IFRAME': 0, 'OBJECT': 0, 'CODE': 0, 'PRE': 0};\n"
+                + "    (function scanSubTree(node) {\n"
+                + "        if (!node) return;\n"
+                + "        if (node.nodeType === 1 && node.hasAttribute('data-Alltrans-translated')) { return; }\n"
+                + "        if (node.tagName && node.tagName in ignore) { return; }\n"
+                + "        if (node.tagName && node.tagName.toLowerCase() == 'input' && (node.type in AllTransInputTypes || node.type in AllTransPlaceholderTypes)) {\n"
+                + "            if (!node.hasAttribute('data-Alltrans-translated')) { result.push(node); }\n"
+                + "        }\n"
+                + "        if (node.childNodes && node.childNodes.length) {\n"
+                + "            for (var i = 0; i < node.childNodes.length; i++) { scanSubTree(node.childNodes[i]); }\n"
+                + "        } else if (node.nodeType == 3) {\n"
+                + "             if (!node.parentElement || !node.parentElement.hasAttribute('data-Alltrans-translated')) { result.push(node); }\n"
+                + "        }\n"
+                + "    })(tempDocument);\n"
+                + "    return result;\n"
+                + "}\n"
+                + "\n"
+                + "function allTransDoReplaceAll(all) {\n"
+                + "    if (!all) return;\n"
+                + "    var textsToSend = {};\n"
+                + "    for (var i = 0, max = all.length; i < max; i++) {\n"
+                + "      var currentNode = all[i];\n"
+                + "      if (!currentNode) continue;\n"
+                + "      try {\n"
+                + "        var text = null;\n"
+                + "        var elementToCheck = null;\n"
+                + "        if (currentNode.tagName && currentNode.tagName.toLowerCase() == 'input' && currentNode.type in AllTransPlaceholderTypes) {\n"
+                + "            text = currentNode.placeholder;\n"
+                + "            elementToCheck = currentNode;\n"
+                + "        } else if (currentNode.nodeType == 3 && currentNode.nodeValue) {\n"
+                + "            text = currentNode.nodeValue;\n"
+                + "            elementToCheck = currentNode.parentElement;\n"
+                + "        } else if (currentNode.tagName && currentNode.tagName.toLowerCase() == 'input' && currentNode.type in AllTransInputTypes) {\n"
+                + "            text = currentNode.value;\n"
+                + "            elementToCheck = currentNode;\n"
+                + "        }\n"
+                + "\n"
+                + "        if (text && text.trim() !== '') {\n"
+                + "            var trimmedText = text.trim();\n"
+                + "            if (elementToCheck && elementToCheck.hasAttribute && elementToCheck.hasAttribute('data-Alltrans-translated')) {\n"
+                + "                 continue;\n"
+                + "            }\n"
+                + "            if (trimmedText.length < 3 && !(elementToCheck && elementToCheck.tagName === 'INPUT')) { continue; }\n"
+                + "            if (AllTransNumericRegex.test(trimmedText)) { continue; }\n"
+                + "            if (trimmedText.length > 5 && AllTransUrlLikeRegex.test(trimmedText) && trimmedText.indexOf(' ') === -1) { continue; }\n"
+                + "            if (trimmedText.length < 6 && AllTransAcronymRegex.test(trimmedText)) { continue; }\n"
+                + "\n"
+                + "            textsToSend[text] = true;\n"
+                + "        }\n"
+                + "      } catch (e) { console.error('AllTrans JS Error processing node for logging:', e); }\n"
+                + "    }\n"
+                + "    for (var uniqueText in textsToSend) {\n"
+                + "        if (textsToSend.hasOwnProperty(uniqueText)) {\n"
+                + "             injectedObject.showLog(uniqueText);\n"
+                + "        }\n"
+                + "    }\n"
+                + "}\n"
+                + "\n"
+                + "function doAll() {\n"
+                + "    console.log('AllTrans JS: doAll() triggered');\n"
+                + "    try {\n"
+                + "      for (var j = 0; j < window.frames.length; j++) {\n"
+                + "        try {\n"
+                + "          var frameDoc = window.frames[j].document;\n"
+                + "          if (frameDoc) {\n"
+                + "            var allFrameNodes = allTransGetAllTextNodes(frameDoc);\n"
+                + "            allTransDoReplaceAll(allFrameNodes);\n"
+                + "          }\n"
+                + "        } catch (frameError) { console.warn('AllTrans JS Error accessing frame ' + j + ' in doAll:', frameError); }\n"
+                + "      }\n"
+                + "    } catch (e) { console.error('AllTrans JS Error iterating frames in doAll:', e); }\n"
+                + "\n"
+                + "    try {\n"
+                + "      var allMainNodes = allTransGetAllTextNodes(window.document);\n"
+                + "      allTransDoReplaceAll(allMainNodes);\n"
+                + "    } catch (e) { console.error('AllTrans JS Error processing main document nodes in doAll:', e); }\n"
+                + "    window.alreadyTranslating = false;\n"
+                + "    console.log('AllTrans JS: doAll() finished');\n"
+                + "}\n"
+                + "\n"
+                + "if (!window.AllTransObserver) {\n"
+                + "  console.log('AllTrans JS: Setting up MutationObserver');\n"
+                + "  MutationObserver = window.MutationObserver || window.WebKitMutationObserver;\n"
+                + "  window.AllTransObserver = new MutationObserver(function(mutations, observer) {\n"
+                + "      if (window.AllTransTimeoutId) { clearTimeout(window.AllTransTimeoutId); }\n"
+                + "      window.AllTransTimeoutId = setTimeout(doAll, 500);\n"
+                + "  });\n"
+                + "\n"
+                + "  try {\n"
+                + "    window.AllTransObserver.observe(document, {\n"
+                + "      subtree: true,\n"
+                + "      childList: true,\n"
+                + "      characterData: true\n"
+                + "    });\n"
+                + "    console.log('AllTrans JS: MutationObserver started.');\n"
+                + "  } catch (e) { console.error('AllTrans JS: Error starting MutationObserver:', e); }\n"
+                + "} else { console.log('AllTrans JS: MutationObserver already exists.'); }\n"
+                + "\n"
+                + "setTimeout(doAll, " + PreferenceList.DelayWebView + ");\n"
+                + "console.log('AllTrans JS: Initialized and observer set/checked.');")
 
-        Utils.debugLog("VirtWebViewOnLoad: Injecting initialization script...")
-        myEvaluateJavaScript(webView, initScript)
-        Utils.debugLog("VirtWebViewOnLoad: afterOnLoadMethod COMPLETED for WebView: $webViewId")
+        Utils.debugLog("VirtWebViewOnLoad: Injecting main JS script...")
+        myEvaluateJavaScript(webView, script)
+        Utils.debugLog("VirtWebViewOnLoad: afterOnLoadMethod EXITED for WebView: " + webView.hashCode())
     }
 
     @Suppress("unused")
     @JavascriptInterface
     fun showLog(stringArgs: String?) {
-        if (stringArgs.isNullOrBlank()) return
-
-        if (webViewInstance == null) {
-            Utils.debugLog("VirtWebViewOnLoad: showLog - webViewInstance is null for text: [$stringArgs]")
+        if (stringArgs == null || stringArgs.trim { it <= ' ' }.isEmpty()) {
             return
         }
 
-        if (!SetTextHookHandler.Companion.isNotWhiteSpace(stringArgs)) return
-
-        // Verificar se já está sendo processado
-        if (pendingTranslations.contains(stringArgs)) {
-            Utils.debugLog("VirtWebViewOnLoad: showLog - Text already being processed: [$stringArgs]")
+        if (this.webViewInstance == null) {
+            Utils.debugLog("VirtWebViewOnLoad: showLog - webViewInstance is null! Aborting translation for [" + stringArgs + "]")
             return
         }
 
-        // Verificar se já foi traduzido
-        if (processedTranslations.containsKey(stringArgs)) {
-            Utils.debugLog("VirtWebViewOnLoad: showLog - Text already translated: [$stringArgs]")
+        if (!SetTextHookHandler.Companion.isNotWhiteSpace(stringArgs)) {
             return
         }
 
-        Utils.debugLog("VirtWebViewOnLoad: showLog received: [$stringArgs] for WebView $webViewId")
+        Utils.debugLog("VirtWebViewOnLoad: showLog received: [" + stringArgs + "] for WebView " + this.webViewInstance.hashCode())
 
-        // Marcar como pendente
-        pendingTranslations.add(stringArgs)
+        val currentUserData = WebHookUserData2(this.webViewInstance, stringArgs)
+        val getTranslate = GetTranslate()
+        getTranslate.stringToBeTrans = stringArgs
+        getTranslate.originalCallable = this
+        getTranslate.userData = currentUserData
+        getTranslate.canCallOriginal = true
 
-        val userData = WebHookUserData2(webViewInstance, stringArgs)
-        val getTranslate = GetTranslate().apply {
-            stringToBeTrans = stringArgs
-            originalCallable = this@VirtWebViewOnLoad
-            this.userData = userData
-            canCallOriginal = true
-        }
+        var translationNeeded = true
 
-        var needsTranslation = true
-
-        // Verificar cache
         if (PreferenceList.Caching) {
             Alltrans.Companion.cacheAccess.acquireUninterruptibly()
+            var cachedValue: String? = null
             try {
-                val cachedValue = Alltrans.Companion.cache?.get(stringArgs)
-                if (cachedValue != null) {
-                    if (cachedValue != stringArgs) {
-                        Utils.debugLog("VirtWebViewOnLoad: Found translation in cache: [$stringArgs] -> [$cachedValue]")
-                        Handler(Looper.getMainLooper()).postDelayed({
-                            callOriginalMethod(cachedValue, userData)
-                        }, PreferenceList.Delay.toLong())
-                        needsTranslation = false
-                    } else {
-                        Utils.debugLog("VirtWebViewOnLoad: Found same text in cache, marking as translated: [$stringArgs]")
-                        markNodeAsTranslated(webViewInstance, stringArgs)
-                        pendingTranslations.remove(stringArgs)
-                        needsTranslation = false
-                    }
+                val cacheRef = Alltrans.Companion.cache
+                if (cacheRef != null) {
+                    cachedValue = cacheRef[stringArgs]
                 }
             } finally {
                 if (Alltrans.Companion.cacheAccess.availablePermits() == 0) {
                     Alltrans.Companion.cacheAccess.release()
                 }
             }
+
+            if (cachedValue != null) {
+                if (cachedValue != stringArgs) {
+                    Utils.debugLog("VirtWebViewOnLoad: showLog - Found different translation in cache: [" + stringArgs + "] -> [" + cachedValue + "]")
+                    val finalCachedTranslation: String? = cachedValue
+                    Handler(Looper.getMainLooper()).postDelayed(Runnable {
+                        callOriginalMethod(
+                            finalCachedTranslation!!, currentUserData
+                        )
+                    }, PreferenceList.Delay.toLong())
+                    translationNeeded = false
+                } else {
+                    Utils.debugLog("VirtWebViewOnLoad: showLog - Found same translation in cache, skipping request: [" + stringArgs + "]")
+                    markNodeAsTranslated(this.webViewInstance, stringArgs)
+                    translationNeeded = false
+                }
+            } else {
+                Utils.debugLog("VirtWebViewOnLoad: showLog - Not in cache: [" + stringArgs + "]")
+                translationNeeded = true
+            }
         }
 
-        if (needsTranslation) {
-            Utils.debugLog("VirtWebViewOnLoad: Requesting translation for: [$stringArgs]")
-            val token = GetTranslateToken().apply {
-                this.getTranslate = getTranslate
-            }
-            token.doAll()
+        if (translationNeeded) {
+            Utils.debugLog("VirtWebViewOnLoad: showLog - Requesting translation for: [" + stringArgs + "]")
+            val getTranslateToken = GetTranslateToken()
+            getTranslateToken.getTranslate = getTranslate
+            getTranslateToken.doAll()
         }
     }
 
     @Suppress("unused")
     @JavascriptInterface
     fun WriteHTML(html: String) {
-        val context = Alltrans.Companion.context ?: return
-
+        val contextRef = Alltrans.Companion.context
+        if (contextRef == null) {
+            Utils.debugLog("VirtWebViewOnLoad: WriteHTML - Context is null, cannot write file.")
+            return
+        }
         try {
-            context.openFileOutput("AllTransWebViewDebug.html", Context.MODE_PRIVATE).use { output ->
-                output.write(html.toByteArray())
-            }
-            Utils.debugLog("VirtWebViewOnLoad: HTML snapshot saved")
+            val fileOutputStream: FileOutputStream = contextRef.openFileOutput(
+                "AllTransWebViewDebug.html",
+                Context.MODE_PRIVATE
+            )
+            fileOutputStream.write(html.toByteArray())
+            fileOutputStream.close()
+            Utils.debugLog("VirtWebViewOnLoad: WriteHTML - Saved HTML snapshot.")
         } catch (e: Throwable) {
-            Utils.debugLog("VirtWebViewOnLoad: Error writing HTML: $e")
+            Utils.debugLog("VirtWebViewOnLoad: WriteHTML - Exception while writing HTML: " + e)
         }
     }
 
-    private fun myEvaluateJavaScript(webView: WebView?, script: String) {
+    fun myEvaluateJavaScript(webView: WebView?, script: String) {
         if (webView == null) {
             Utils.debugLog("VirtWebViewOnLoad: myEvaluateJavaScript - WebView is null!")
             return
         }
+        Utils.debugLog(
+            "VirtWebViewOnLoad: Evaluating JS for WebView " + webView.hashCode() + ": " + script.substring(
+                0,
+                min(script.length.toDouble(), 100.0).toInt()
+            ) + "..."
+        )
 
-        val preview = script.take(100)
-        Utils.debugLog("VirtWebViewOnLoad: Evaluating JS for WebView $webViewId: $preview...")
-
-        webView.post {
-            try {
-                webView.evaluateJavascript(script) { result ->
-                    // Log opcional do resultado
-                    if (result != null && result != "null" && result.isNotEmpty()) {
-                        // Utils.debugLog("VirtWebViewOnLoad: JS result: $result")
-                    }
+        webView.post(object : Runnable {
+            override fun run() {
+                try {
+                    webView.evaluateJavascript(script, object : ValueCallback<String?> {
+                        override fun onReceiveValue(value: String?) {
+                            val logValue =
+                                if (value == null || "null" == value || value.isEmpty()) "<no return value>" else value
+                            // Utils.debugLog("VirtWebViewOnLoad: JS evaluation result: " + logValue); // Comentado para reduzir spam
+                        }
+                    })
+                } catch (e: Exception) {
+                    Utils.debugLog("VirtWebViewOnLoad: Exception during evaluateJavascript: " + e.message)
                 }
-            } catch (e: Exception) {
-                Utils.debugLog("VirtWebViewOnLoad: Exception during evaluateJavascript: ${e.message}")
             }
-        }
+        })
     }
-}
+} // Fim da classe VirtWebViewOnLoad
+
 
 // Classe auxiliar
 internal class WebHookUserData2(val webView: WebView?, val stringArgs: String?)
