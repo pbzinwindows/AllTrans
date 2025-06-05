@@ -1,17 +1,12 @@
 package akhil.alltrans
 
-import android.annotation.SuppressLint
-import android.text.AlteredCharSequence
+import android.app.Activity
 import android.text.Spannable
 import android.text.SpannableString
-import android.text.SpannableStringBuilder
-import android.text.SpannedString
 import android.text.TextUtils
 import android.text.method.ScrollingMovementMethod
 import android.util.Log
-import android.view.MotionEvent
-import android.view.View
-import android.view.View.OnTouchListener
+import android.view.View // Import para View.SCROLLBARS_INSIDE_INSET
 import android.widget.TextView
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
@@ -19,270 +14,291 @@ import java.nio.CharBuffer
 import java.util.regex.Pattern
 
 class SetTextHookHandler : XC_MethodHook() {
-    private val TAG = "AllTrans:SetTextHook" // Added for consistent logging
 
-    // Função auxiliar para modificar o argumento no param
-    private fun modifyArgument(param: MethodHookParam, newText: CharSequence?) {
-        if (param.args.size > 0 && param.args[0] != null && newText != null) {
-            val argType: Class<*> = param.args[0].javaClass
-            var textToSet: CharSequence? = newText
-            try {
-                if (argType == AlteredCharSequence::class.java) {
-                    // Using null-safe operator ?: to ensure non-null value
-                    textToSet = AlteredCharSequence.make(textToSet ?: "", null, 0, 0)
-                } else if (argType == CharBuffer::class.java) {
-                    textToSet = CharBuffer.wrap(textToSet.toString())
-                } else if (argType == SpannableString::class.java) {
-                    textToSet = SpannableString(textToSet.toString())
-                } else if (argType == SpannedString::class.java) {
-                    textToSet = SpannedString(textToSet.toString())
-                } else if (argType == String::class.java) {
-                    textToSet = textToSet.toString()
-                } else if (argType == StringBuffer::class.java) {
-                    textToSet = StringBuffer(textToSet.toString())
-                } else if (argType == StringBuilder::class.java) {
-                    textToSet = StringBuilder(textToSet.toString())
-                } else if (argType == CharSequence::class.java || param.args[0] is CharSequence) {
-                    textToSet = SpannableStringBuilder(textToSet.toString())
-                } else {
-                    Log.w(
-                        "AllTrans",
-                        "Unsupported argument type in modifyArgument: " + argType.getName()
-                    )
-                    textToSet = textToSet.toString()
+    companion object {
+        private const val TAG = "AllTrans:SetTextHook"
+        private val NUMERIC_PATTERN: Pattern = Pattern.compile("^[+-]?\\d+([.,]\\d+)?$")
+        private val URL_LIKE_PATTERN: Pattern = Pattern.compile("^(https?://\\S+|[^\\s:/]+\\.[^\\s:/]+(/[\\S]*)?)$")
+        private val ACRONYM_LIKE_PATTERN: Pattern = Pattern.compile("^[A-Z0-9_\\-.:]{1,10}$") // Ajustado para permitir 1 char
+        private val TIMESTAMP_PATTERN: Pattern = Pattern.compile("^\\d{1,2}:\\d{2}(:\\d{2})?(\\s?(AM|PM))?$", Pattern.CASE_INSENSITIVE)
+        private val WHITESPACE_PATTERN: Pattern = Pattern.compile("^\\s*$")
+        private const val MIN_LENGTH_FOR_TRANSLATION = 1 // Alterado para 1 para traduzir textos menores
+
+        fun isNotWhiteSpace(text: String?): Boolean {
+            return !text.isNullOrEmpty() && !WHITESPACE_PATTERN.matcher(text).matches()
+        }
+
+        fun shouldSkipTranslation(text: String): Boolean {
+            if (text.length < MIN_LENGTH_FOR_TRANSLATION && text.length > 0) { // Se MIN_LENGTH_FOR_TRANSLATION é 1, esta condição raramente será true
+                Utils.debugLog("$TAG: Skipping (too short, mas MIN_LENGTH é 1): [$text]") // Log ajustado
+                // return true; // Comentado para permitir tradução de 1 char se MIN_LENGTH_FOR_TRANSLATION for 1
+            }
+            // Se o texto tem apenas 1 caractere e é uma letra ou símbolo comum, pode não valer a pena traduzir.
+            // Esta é uma heurística opcional.
+            if (text.length == 1 && !Character.isLetterOrDigit(text[0])) {
+                // Utils.debugLog("$TAG: Skipping (single non-alphanumeric char): [$text]")
+                // return true; // Descomente se quiser pular símbolos únicos
+            }
+
+            if (NUMERIC_PATTERN.matcher(text).matches()) {
+                Utils.debugLog("$TAG: Skipping (numeric): [$text]")
+                return true
+            }
+            if (URL_LIKE_PATTERN.matcher(text).matches() && !text.contains(" ")) {
+                Utils.debugLog("$TAG: Skipping (URL-like): [$text]")
+                return true
+            }
+            if (ACRONYM_LIKE_PATTERN.matcher(text).matches()) {
+                // Para acrônimos, talvez verificar se tem pelo menos uma letra
+                var hasLetter = false
+                for (char_acronym in text) { // Renomeado para evitar conflito
+                    if (Character.isLetter(char_acronym)) {
+                        hasLetter = true
+                        break
+                    }
                 }
-                param.args[0] = textToSet
-                Utils.debugLog("$TAG: Hook argument modified directly with text: [" + textToSet + "]")
-            } catch (e: Exception) {
-                Log.e(
-                    "AllTrans",
-                    "$TAG: Error modifying argument type " + argType.getName() + " with text [" + newText + "]",
-                    e
-                )
-                try {
-                    param.args[0] = newText.toString()
-                } catch (ignored: Exception) {
+                if (!hasLetter && text.length <=3) { // Ex: "1.0", "-", ":"
+                    Utils.debugLog("$TAG: Skipping (acronym-like, no letters, short): [$text]")
+                    return true
+                } else if (hasLetter) { // Se tem letras, é um acrônimo mais provável
+                    Utils.debugLog("$TAG: Skipping (acronym-like with letters): [$text]")
+                    return true
                 }
             }
-        } else if (param.args.size > 0) {
-            param.args[0] = newText
+            if (TIMESTAMP_PATTERN.matcher(text).matches()) {
+                Utils.debugLog("$TAG: Skipping (timestamp): [$text]")
+                return true
+            }
+            return false
         }
     }
 
-
-    @Throws(Throwable::class)
-    override fun beforeHookedMethod(param: MethodHookParam) {
-        // Verificações Iniciais
-        if (param.args == null || param.args.size == 0 || param.args[0] == null || (param.args[0] !is CharSequence)) {
+    private fun modifyArgument(param: XC_MethodHook.MethodHookParam, newText: CharSequence?) {
+        if (param.args.isEmpty() || param.args[0] == null || newText == null) {
+            Utils.debugLog("$TAG: ModifyArgument - Argumentos inválidos ou newText nulo, não modificando.")
             return
         }
-        val originalCharSequence = param.args[0] as CharSequence
-        val stringArgs = originalCharSequence.toString()
-        if (!isNotWhiteSpace(stringArgs)) {
-            return
+        param.args[0] = when (param.args[0]) {
+            is SpannableString -> SpannableString(newText)
+            is CharBuffer -> CharBuffer.wrap(newText.toString())
+            is String -> newText.toString()
+            is StringBuffer -> StringBuffer(newText.toString())
+            is StringBuilder -> StringBuilder(newText.toString())
+            else -> newText
+        }
+        Utils.debugLog("$TAG: Argumento modificado com texto: [$newText]")
+    }
+
+    private fun isEditableTextView(textView: TextView): Boolean {
+        return try {
+            val isDefaultEditable = XposedHelpers.callMethod(textView, "getDefaultEditable") as? Boolean ?: false
+            val isEnabled = textView.isEnabled
+            isDefaultEditable && isEnabled
+        } catch (e: Throwable) {
+            Utils.debugLog("$TAG: Erro ao verificar se TextView é editável: ${Log.getStackTraceString(e)}")
+            false
+        }
+    }
+
+    private fun createCompositeKey(textViewHashCode: Int, text: String): Int {
+        return 31 * textViewHashCode + text.hashCode()
+    }
+
+    private fun getCachedTranslation(text: String, compositeKey: Int): String? {
+        if (!PreferenceList.Caching) {
+            Utils.debugLog("$TAG ($compositeKey): Cache está DESABILITADO nas preferências. Pulando busca no cache para: [$text]")
+            return null
         }
 
-        var textView: TextView? = null
-        if (param.thisObject is TextView) {
-            textView = param.thisObject as TextView
-            try {
-                val editable = XposedHelpers.callMethod(textView, "getDefaultEditable") as Boolean
-                if (editable && param.method.getName() != "setHint") {
-                    Utils.debugLog("$TAG: Skipping translation for editable TextView: [" + stringArgs + "]")
-                    if (PreferenceList.Scroll) configureScroll(textView)
-                    return
-                }
-                if (!editable && PreferenceList.Scroll) configureScroll(textView)
-            } catch (e: Throwable) {
-                Log.w("AllTrans", "$TAG: Error checking editable/scroll: " + Log.getStackTraceString(e))
-            }
-        } else {
-            Log.w(
-                "AllTrans",
-                "$TAG: Hooked object is not a TextView: " + param.thisObject.javaClass.getName()
-            )
-            return  // Só traduzir TextViews
-        }
-
-        val textViewHashCode = textView.hashCode()
-        // Create consistent composite key that includes both TextView and text content
-        val compositeKeyHash = "$textViewHashCode:${stringArgs.hashCode()}".hashCode()
-
-        // Check if already pending using the composite key
-        synchronized(Alltrans.pendingTextViewTranslations) {
-            if (Alltrans.pendingTextViewTranslations.contains(compositeKeyHash)) {
-                Utils.debugLog("$TAG: Skipping translation for [" + stringArgs + "], already pending for composite key ($compositeKeyHash)")
-                return // Let original setText proceed, new text will be set by pending callback if different
-            }
-            // Add to pending set BEFORE dispatching translation request to prevent race conditions
-            Alltrans.pendingTextViewTranslations.add(compositeKeyHash)
-            Utils.debugLog("$TAG: Added composite key ($compositeKeyHash) to pending set.")
-        }
-
-        // Otimização: Verificar se já está traduzido (e is the same as current text)
-        var alreadyTranslatedAndSame = false
-        if (PreferenceList.Caching) {
-            Alltrans.cacheAccess.acquireUninterruptibly()
-            try {
-                val cacheRef = Alltrans.cache // Accesses the LruCache via its getter
-                // LruCache.get(key) returns null if key is not found.
-                // So, checking if get(key) is non-null is equivalent to containsKey(key).
-                if (cacheRef != null && cacheRef.get(stringArgs) != null && stringArgs == cacheRef.get(stringArgs)) {
-                    Utils.debugLog("$TAG: Skipping processing, text already appears translated and is identical: [" + stringArgs + "]")
-                    alreadyTranslatedAndSame = true
-                }
-            } finally {
-                if (Alltrans.cacheAccess.availablePermits() == 0) {
-                    Alltrans.cacheAccess.release()
-                }
-            }
-        }
-        if (alreadyTranslatedAndSame) {
-            // Remover da lista de pendentes já que não precisa traduzir
-            synchronized(Alltrans.pendingTextViewTranslations) {
-                Alltrans.pendingTextViewTranslations.remove(compositeKeyHash)
-                Utils.debugLog("$TAG: Removed composite key ($compositeKeyHash) from pending set as text already appears translated.")
-            }
-            return // Let original setText proceed
-        }
-
-        // Pular Numéricos, URLs e Acrônimos
-        if (NUMERIC_PATTERN.matcher(stringArgs).matches()) {
-            Utils.debugLog("$TAG: Skipping translation for numeric string: [" + stringArgs + "]")
-            // Remover da lista de pendentes já que não vai traduzir
-            synchronized(Alltrans.pendingTextViewTranslations) {
-                Alltrans.pendingTextViewTranslations.remove(compositeKeyHash)
-                Utils.debugLog("$TAG: Removed composite key ($compositeKeyHash) from pending set as text is numeric.")
-            }
-            return
-        }
-        if (stringArgs.length > 3 && URL_LIKE_PATTERN.matcher(stringArgs).matches() && !stringArgs.contains(" ")) {
-            Utils.debugLog("$TAG: Skipping translation for URL-like string: [" + stringArgs + "]")
-            // Remover da lista de pendentes já que não vai traduzir
-            synchronized(Alltrans.pendingTextViewTranslations) {
-                Alltrans.pendingTextViewTranslations.remove(compositeKeyHash)
-                Utils.debugLog("$TAG: Removed composite key ($compositeKeyHash) from pending set as text is URL-like.")
-            }
-            return
-        }
-        if (stringArgs.length < 5 && ACRONYM_LIKE_PATTERN.matcher(stringArgs).matches()) {
-            Utils.debugLog("$TAG: Skipping translation for likely acronym/code: [" + stringArgs + "]")
-            // Remover da lista de pendentes já que não vai traduzir
-            synchronized(Alltrans.pendingTextViewTranslations) {
-                Alltrans.pendingTextViewTranslations.remove(compositeKeyHash)
-                Utils.debugLog("$TAG: Removed composite key ($compositeKeyHash) from pending set as text is acronym-like.")
-            }
-            return
-        }
-
-        Utils.debugLog("$TAG: Potential translation target: [" + stringArgs + "] for TextView (" + textViewHashCode + ") with composite key ($compositeKeyHash)")
-
-        var cachedTranslation: String? = null
-        var translationRequested = false
-
-        Alltrans.cacheAccess.acquireUninterruptibly()
+        var cachedValue: String? = null
         try {
-            val cacheRef = Alltrans.cache // Accesses the LruCache via its getter
-            // Check if caching is enabled and cacheRef is not null (getter ensures it's initialized)
-            if (PreferenceList.Caching && cacheRef != null) {
-                // LruCache.get(key) returns null if key is not found.
-                // This also effectively checks for key presence.
-                cachedTranslation = cacheRef.get(stringArgs)
-                if (cachedTranslation != null && cachedTranslation != stringArgs) {
-                    Utils.debugLog("$TAG: Applying cached translation directly to args: [" + stringArgs + "] -> [" + cachedTranslation + "]")
-                    modifyArgument(param, cachedTranslation)
-                } else {
-                    Utils.debugLog("$TAG: Invalid/same translation in cache for: [" + stringArgs + "], proceeding with original or fresh translation.")
-                    cachedTranslation = null
-                }
+            Alltrans.cacheAccess.acquireUninterruptibly()
+            val currentCache = Alltrans.cache
+            if (currentCache == null) {
+                Utils.debugLog("$TAG ($compositeKey): Objeto Cache é NULO (inesperado, já que PreferenceList.Caching é true). Não foi possível obter tradução para: [$text]")
+                return null
             }
-
-            if (cachedTranslation == null) {
-                Utils.debugLog("$TAG: String not cached or invalid/same in cache. Requesting fresh translation for: [" + stringArgs + "] for composite key ($compositeKeyHash)")
-                translationRequested = true
-
-                if (PreferenceList.TranslatorProvider == "m" && PreferenceList.CurrentAppMicrosoftBatchEnabled) {
-                    Utils.debugLog("$TAG: Using BatchTranslationManager for Microsoft provider (batching enabled) for composite key: $compositeKeyHash, Text: \"${stringArgs.take(50)}...\"")
-                    Alltrans.batchManager.addString(
-                        text = stringArgs,
-                        userData = textView,
-                        originalCallable = null,
-                        canCallOriginal = false,
-                        compositeKey = compositeKeyHash
-                    )
-                    // A chave já foi adicionada em pendingTextViewTranslations acima
-                } else {
-                    // Direct translation for non-Microsoft providers OR if MS batching is disabled for this app
-                    val reason = if (PreferenceList.TranslatorProvider == "m") "(MS batching disabled)" else "(non-MS provider)"
-                    Utils.debugLog("$TAG: Using direct translation $reason for composite key: $compositeKeyHash, Text: \"${stringArgs.take(50)}...\"")
-
-                    val getTranslate = GetTranslate()
-                    getTranslate.stringToBeTrans = stringArgs
-                    getTranslate.userData = textView
-                    getTranslate.canCallOriginal = false
-                    getTranslate.pendingCompositeKey = compositeKeyHash // Fornecendo a composite key para o callback
-
-                    val getTranslateToken = GetTranslateToken()
-                    getTranslateToken.getTranslate = getTranslate
-                    getTranslateToken.doAll()
-                }
-            } else {
-                // Se uma tradução em cache foi aplicada, remova da lista de pendentes
-                synchronized(Alltrans.pendingTextViewTranslations) {
-                    Alltrans.pendingTextViewTranslations.remove(compositeKeyHash)
-                    Utils.debugLog("$TAG: Removed composite key ($compositeKeyHash) from pending set after applying cached translation.")
-                }
-            }
+            cachedValue = currentCache.get(text)
+        } catch (e: Exception) {
+            Utils.debugLog("$TAG ($compositeKey): Erro ao acessar cache para: [$text]: ${Log.getStackTraceString(e)}")
+            return null
         } finally {
             if (Alltrans.cacheAccess.availablePermits() == 0) {
                 Alltrans.cacheAccess.release()
             }
         }
 
-        if (translationRequested) {
-            Utils.debugLog("$TAG: Proceeding with original text for [" + stringArgs + "] while waiting for callback.")
-        } else if (cachedTranslation != null) {
-            Utils.debugLog("$TAG: Proceeding with cached (modified) translation for [" + stringArgs + "].")
+        if (cachedValue != null) {
+            if (cachedValue != text) {
+                Utils.debugLog("$TAG ($compositeKey): Tradução encontrada no cache para: [$text] -> [$cachedValue]")
+                return cachedValue
+            } else {
+                Utils.debugLog("$TAG ($compositeKey): Valor no cache é IGUAL ao original para: [$text]. Considerado como não traduzido/sem hit útil.")
+                return null
+            }
+        }
+        Utils.debugLog("$TAG ($compositeKey): Não encontrado no cache: [$text]") // Cache habilitado, mas item não encontrado
+        return null
+    }
+
+    private fun removePendingTranslation(compositeKey: Int, reason: String) {
+        synchronized(Alltrans.pendingTextViewTranslations) {
+            if (Alltrans.pendingTextViewTranslations.remove(compositeKey)) {
+                Utils.debugLog("$TAG: Chave composta ($compositeKey) removida das pendências: $reason")
+            }
         }
     }
 
+    private fun addPendingTranslation(compositeKey: Int, text: String): Boolean {
+        synchronized(Alltrans.pendingTextViewTranslations) {
+            if (Alltrans.pendingTextViewTranslations.contains(compositeKey)) {
+                Utils.debugLog("$TAG: Tradução JÁ PENDENTE para chave ($compositeKey), texto: [$text]")
+                return false
+            }
+            Alltrans.pendingTextViewTranslations.add(compositeKey)
+            Utils.debugLog("$TAG: Chave ($compositeKey) ADICIONADA às pendências para texto: [$text]")
+            return true
+        }
+    }
 
-    @SuppressLint("ClickableViewAccessibility")
+    private fun requestTranslation(text: String, textView: TextView, compositeKey: Int) {
+        val context = textView.context
+        if (context is Activity && (context.isFinishing || context.isDestroyed)) {
+            Utils.debugLog("$TAG ($compositeKey): Activity destruída ou finalizando para TextView ${textView.hashCode()}, cancelando requisição para: [$text]")
+            removePendingTranslation(compositeKey, "Activity destruída/finalizando")
+            return
+        }
+
+        Utils.debugLog("$TAG ($compositeKey): Solicitando tradução para TextView ${textView.hashCode()}, Texto: [$text]")
+
+        if (PreferenceList.TranslatorProvider == "m" && PreferenceList.CurrentAppMicrosoftBatchEnabled) {
+            Utils.debugLog("$TAG ($compositeKey): Usando BatchTranslationManager para Microsoft para: [$text]")
+            Alltrans.batchManager.addString(
+                text = text,
+                userData = textView,
+                originalCallable = null,
+                canCallOriginal = false,
+                compositeKey = compositeKey
+            )
+        } else {
+            Utils.debugLog("$TAG ($compositeKey): Usando GetTranslate direto para: [$text]")
+            val getTranslate = GetTranslate().apply {
+                stringToBeTrans = text
+                userData = textView
+                originalCallable = null
+                canCallOriginal = false
+                pendingCompositeKey = compositeKey
+            }
+            GetTranslateToken().apply {
+                this.getTranslate = getTranslate
+            }.doAll()
+        }
+    }
+
+    @Throws(Throwable::class)
+    override fun beforeHookedMethod(param: XC_MethodHook.MethodHookParam) {
+        val methodName = param.method.name
+        val textView = param.thisObject as? TextView ?: return
+
+        // Verifica a tag para ignorar o setText chamado pelo próprio AllTrans
+        val appliedByAllTransTag = textView.getTag(Alltrans.ALLTRANS_TRANSLATION_APPLIED_TAG_KEY)
+        if (appliedByAllTransTag != null && appliedByAllTransTag is Boolean && appliedByAllTransTag == true) {
+            textView.setTag(Alltrans.ALLTRANS_TRANSLATION_APPLIED_TAG_KEY, false) // Reseta a tag
+            Utils.debugLog("$TAG: [${textView.hashCode()}] $methodName ignorado pois foi aplicado pelo AllTrans.")
+            return
+        }
+
+        if (param.args.isEmpty() || param.args[0] == null || param.args[0] !is CharSequence) {
+            return
+        }
+
+        val originalTextCS = param.args[0] as CharSequence
+        val originalText = originalTextCS.toString()
+
+        val textViewIdHex = try { "@${Integer.toHexString(textView.id)}" } catch (e: Exception) { "" }
+        val logPrefix = "$TAG: [${textView.hashCode()}$textViewIdHex] $methodName"
+
+        Utils.debugLog("$logPrefix - Texto Original: [${originalText.replace("\n", "\\n")}]")
+
+        if (!PreferenceList.Enabled) {
+            Utils.debugLog("$logPrefix - Módulo globalmente DESABILITADO. Pulando.")
+            return
+        }
+        if (!PreferenceList.LocalEnabled) {
+            Utils.debugLog("$logPrefix - Módulo DESABILITADO para este app (${textView.context?.packageName}). Pulando.")
+            return
+        }
+
+        if (methodName == "setHint" && !PreferenceList.SetHint) {
+            Utils.debugLog("$logPrefix - Tradução de Hint DESABILITADA. Pulando.")
+            return
+        }
+        if (methodName == "setText" && !PreferenceList.SetText) {
+            Utils.debugLog("$logPrefix - Tradução de Texto DESABILITADA. Pulando.")
+            return
+        }
+
+        if (!isNotWhiteSpace(originalText)) {
+            return
+        }
+
+        if (isEditableTextView(textView) && methodName != "setHint") {
+            Utils.debugLog("$logPrefix - É um TextView editável (não Hint). Pulando tradução, aplicando scroll se habilitado.")
+            if (PreferenceList.Scroll) {
+                configureScroll(textView)
+            }
+            return
+        }
+
+        if (PreferenceList.Scroll) {
+            configureScroll(textView)
+        }
+
+        if (shouldSkipTranslation(originalText)) {
+            return
+        }
+
+        val compositeKey = createCompositeKey(textView.hashCode(), originalText)
+        Utils.debugLog("$logPrefix - Chave Composta: $compositeKey para texto: [$originalText]")
+
+        val cachedTranslation = getCachedTranslation(originalText, compositeKey)
+        if (cachedTranslation != null) {
+            Utils.debugLog("$logPrefix - Aplicando tradução do CACHE: [$originalText] -> [$cachedTranslation]")
+
+            textView.setTag(Alltrans.ALLTRANS_TRANSLATION_APPLIED_TAG_KEY, true) // Marca antes de modificar
+            modifyArgument(param, cachedTranslation)
+            // Não remove da lista de pendentes pois não foi adicionado
+            return
+        }
+
+        if (!addPendingTranslation(compositeKey, originalText)) {
+            Utils.debugLog("$logPrefix - Tradução já está pendente para este texto/textview. Pulando nova requisição.")
+            return
+        }
+
+        requestTranslation(originalText, textView, compositeKey)
+    }
+
     private fun configureScroll(textView: TextView) {
         try {
-            textView.setEllipsize(TextUtils.TruncateAt.MARQUEE)
-            textView.setSelected(true)
-            textView.setMarqueeRepeatLimit(-1)
-            val alreadyScrolling = textView.getMovementMethod()
-            if (alreadyScrolling == null) {
-                textView.setVerticalScrollBarEnabled(true)
-                textView.setMovementMethod(ScrollingMovementMethod())
-                textView.setOnTouchListener(object : OnTouchListener {
-                    override fun onTouch(v: View, event: MotionEvent?): Boolean {
-                        v.getParent().requestDisallowInterceptTouchEvent(true)
-                        val method = (v as TextView).getMovementMethod()
-                        val text = v.getText()
-                        if (method != null && v.isFocused() && text is Spannable) {
-                            return method.onTouchEvent(v, text, event)
-                        }
-                        return false
-                    }
-                })
+            if (textView.movementMethod == null && !textView.isSingleLine) {
+                // Aplicar scroll vertical para multiline TextViews sem movementMethod
+                textView.isVerticalScrollBarEnabled = true
+                textView.movementMethod = ScrollingMovementMethod.getInstance()
+                textView.scrollBarStyle = View.SCROLLBARS_INSIDE_INSET
+                // Opcional: permitir que o TextView capture o foco para scroll com D-Pad/teclado
+                // textView.isFocusable = true
+                // textView.isFocusableInTouchMode = true
+            } else if (textView.isSingleLine) {
+                // Aplicar marquee para singleLine TextViews
+                textView.ellipsize = TextUtils.TruncateAt.MARQUEE
+                textView.marqueeRepeatLimit = -1 // Loop infinito
+                textView.isFocusable = true
+                textView.isFocusableInTouchMode = true
+                textView.isSelected = true // Inicia o marquee
             }
         } catch (e: Throwable) {
-            Log.w("AllTrans", "$TAG: Failed to configure scrolling", e)
-        }
-    }
-
-    companion object {
-        private val NUMERIC_PATTERN: Pattern = Pattern.compile("^[+-]?\\d+(\\.\\d+)?$")
-        private val URL_LIKE_PATTERN: Pattern =
-            Pattern.compile("^(http|https)://.*|[^\\s]+\\.[^\\s]+$")
-        private val ACRONYM_LIKE_PATTERN: Pattern = Pattern.compile("^[A-Z0-9_\\-:]+$")
-        private val TIMESTAMP_PATTERN: Pattern = Pattern.compile("^\\d{1,2}:\\d{2}(:\\d{2})?$") // Para formatos como 00:07, 0:07, 00:07:15
-
-        fun isNotWhiteSpace(abc: String?): Boolean {
-            return !(abc == null || "" == abc) && !abc.matches("^\\s*$".toRegex())
+            Log.w(TAG, "Falha ao configurar scroll para TextView ${textView.hashCode()}", e)
         }
     }
 }

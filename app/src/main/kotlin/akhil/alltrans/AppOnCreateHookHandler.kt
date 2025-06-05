@@ -1,54 +1,44 @@
-// AppOnCreateHookHandler.kt (com correção)
 package akhil.alltrans
 
 import android.app.Application
-import android.util.Log
+// import android.util.Log // Log é usado via XposedBridge ou Utils.debugLog
 import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge // Adicionado import para XposedBridge
+import de.robv.android.xposed.XposedBridge
 
-// Importar Context
 internal class AppOnCreateHookHandler : XC_MethodHook() {
-    override fun afterHookedMethod(methodHookParam: MethodHookParam) { // Usa afterHookedMethod
+    override fun afterHookedMethod(methodHookParam: MethodHookParam) {
         Utils.debugLog("AllTrans: in after OnCreate of Application")
 
         if (methodHookParam.thisObject is Application) {
             val application = methodHookParam.thisObject as Application
-            val appContext = application.getApplicationContext()
+            val appContext = application.applicationContext // Use val
             if (appContext != null) {
                 if (Alltrans.context == null) {
                     Alltrans.context = appContext
-                    Utils.debugLog("AllTrans: Application context set successfully from Application.onCreate for package: " + appContext.getPackageName())
+                    Utils.debugLog("AllTrans: Application context set successfully from Application.onCreate for package: " + appContext.packageName)
 
-                    // --- Chama a inicialização da chave da tag AQUI ---
-                    Alltrans.initializeTagKeyIfNeeded() // Chama o método estático público
+                    Alltrans.initializeTagKeyIfNeeded()
 
-                    // --- Fim da chamada ---
-
-                    // *** NOVA VERIFICAÇÃO PARA EVITAR CHAMADA PARA O PRÓPRIO PACOTE ***
-                    val packageName = appContext.getPackageName()
+                    val packageName = appContext.packageName // Use val
                     if (packageName != "akhil.alltrans") {
                         try {
-                            // Verifica se as preferências já foram lidas para evitar duplicação
-                            // (Pode ser necessário um flag estático adicional se isso causar problemas)
                             AttachBaseContextHookHandler.readPrefAndHook(appContext)
-                        } catch (e: Exception) { // Catch broader exception
+                        } catch (e: Exception) {
                             Utils.debugLog("AllTrans: Error calling readPrefAndHook from AppOnCreateHookHandler for package $packageName: " + e.message)
-                            XposedBridge.log(e) // Log the full exception for more details
+                            XposedBridge.log(e)
                         }
                     } else {
                         Utils.debugLog("AllTrans: Skipping readPrefAndHook for own package $packageName in Application.onCreate.")
                     }
                 } else {
                     Utils.debugLog("AllTrans: Application context already set, skipping assignment in Application.onCreate.")
-                    // Mesmo se o contexto já estiver definido, tenta inicializar a chave caso não tenha sido feito
-                    Alltrans.initializeTagKeyIfNeeded() // Chama o método estático público
+                    Alltrans.initializeTagKeyIfNeeded()
                 }
             } else {
                 Utils.debugLog("AllTrans: Could not get application context in Application.onCreate.")
             }
 
-            // Registrar ActivityLifecycleCallbacks (como antes)
-            val myActivityLifecycleCallbacks = MyActivityLifecycleCallbacks()
+            val myActivityLifecycleCallbacks = MyActivityLifecycleCallbacks() // Use val
             application.registerActivityLifecycleCallbacks(myActivityLifecycleCallbacks)
         } else {
             Utils.debugLog("AllTrans: Hooked object in Application.onCreate is not an Application instance?")
