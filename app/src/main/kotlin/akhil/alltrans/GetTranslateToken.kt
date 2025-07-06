@@ -11,6 +11,8 @@ import android.util.Log
 import androidx.core.net.toUri
 import okhttp3.Cache
 import okhttp3.Call
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
@@ -26,9 +28,15 @@ import java.io.File
 import java.io.IOException
 import java.io.UnsupportedEncodingException
 import java.net.URLEncoder
+import java.util.concurrent.BlockingQueue
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 internal class GetTranslateToken {
     var getTranslate: GetTranslate? = null
@@ -37,21 +45,117 @@ internal class GetTranslateToken {
         if (httpsClient == null && PreferenceList.TranslatorProvider != "g") {
             synchronized(GetTranslateToken::class.java) {
                 if (httpsClient == null) {
-                    val cache = createHttpsClientCache()
-                    val builder = OkHttpClient.Builder()
-                    cache?.let { builder.cache(it) }
-                    builder.connectTimeout(10, TimeUnit.SECONDS)
-                    builder.readTimeout(15, TimeUnit.SECONDS)
-                    builder.writeTimeout(15, TimeUnit.SECONDS)
-                    httpsClient = builder.build()
+                    httpsClient = createOptimizedHttpClient()
                     Log.i(
                         TAG,
-                        "OkHttpClient initialized ${if (cache != null) "with" else "without"} file cache."
+                        "Optimized OkHttpClient initialized with connection pooling and HTTP/2 support."
                     )
                 }
             }
         }
-        doInBackground()
+
+        // Check for duplicate requests
+        val callback = getTranslate ?: run {
+            Log.e(TAG, "GetTranslate is null. Aborting.")
+            return
+        }
+
+        val text = callback.stringToBeTrans
+        val isBatchMode = callback.stringsToBeTrans?.isNotEmpty() == true
+
+        if (!isBatchMode && !text.isNullOrEmpty()) {
+            val deduplicationKey = createDeduplicationKey(text)
+            val existingFuture = activeRequests[deduplicationKey]
+            if (existingFuture != null && !existingFuture.isDone) {
+                Utils.debugLog("$TAG: Deduplicating request for: [$text]")
+                existingFuture.thenAccept { result ->
+                    handleDuplicateResult(callback, result)
+                }
+                return
+            }
+        }
+
+        // Submit task to appropriate executor
+        val task = TranslationTask(callback)
+        val future = when (PreferenceList.TranslatorProvider) {
+            "g" -> CompletableFuture.supplyAsync({ task.call() }, googleQueryExecutor)
+            else -> CompletableFuture.supplyAsync({ task.call() }, networkExecutor)
+        }
+
+        // Store future for deduplication if not batch mode
+        if (!isBatchMode && !text.isNullOrEmpty()) {
+            val deduplicationKey = createDeduplicationKey(text)
+            activeRequests[deduplicationKey] = future
+            future.whenComplete { _, _ ->
+                activeRequests.remove(deduplicationKey)
+            }
+        }
+    }
+
+    private fun createOptimizedHttpClient(): OkHttpClient {
+        val cache = createHttpsClientCache()
+
+        // Optimized dispatcher
+        val dispatcher = Dispatcher().apply {
+            maxRequests = 32 // Increased from default 64
+            maxRequestsPerHost = 12 // Increased from default 5
+        }
+
+        // Optimized connection pool
+        val connectionPool = ConnectionPool(
+            maxIdleConnections = 10, // Increased from default 5
+            keepAliveDuration = 60L, // Increased from default 5 minutes
+            TimeUnit.SECONDS
+        )
+
+        return OkHttpClient.Builder()
+            .dispatcher(dispatcher)
+            .connectionPool(connectionPool)
+            .cache(cache)
+            .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
+            .retryOnConnectionFailure(true)
+            .connectTimeout(8, TimeUnit.SECONDS) // Slightly reduced
+            .readTimeout(12, TimeUnit.SECONDS) // Slightly reduced
+            .writeTimeout(12, TimeUnit.SECONDS) // Slightly reduced
+            .callTimeout(30, TimeUnit.SECONDS) // Overall timeout
+            // Connection keep-alive optimization
+            .addNetworkInterceptor { chain ->
+                val request = chain.request().newBuilder()
+                    .header("Connection", "keep-alive")
+                    .header("Keep-Alive", "timeout=60, max=100")
+                    .build()
+                chain.proceed(request)
+            }
+            .build()
+    }
+
+    private fun createDeduplicationKey(text: String): String {
+        return "${PreferenceList.TranslateFromLanguage}-${PreferenceList.TranslateToLanguage}-${text.hashCode()}"
+    }
+
+    private fun handleDuplicateResult(callback: GetTranslate, result: String?) {
+        val mockRequest = Request.Builder().url("https://mock.deduplicated.call").build()
+        val mockCall = (httpsClient ?: createOptimizedHttpClient()).newCall(mockRequest)
+        val response = Response.Builder()
+            .request(mockRequest)
+            .protocol(Protocol.HTTP_2)
+            .code(200)
+            .message("OK (Deduplicated)")
+            .body((result ?: "").toResponseBody(null))
+            .build()
+
+        Handler(Looper.getMainLooper()).post {
+            callback.onResponse(mockCall, response)
+        }
+    }
+
+    private class TranslationTask(private val callback: GetTranslate?) : java.util.concurrent.Callable<String?> {
+        override fun call(): String? {
+            val getTranslateToken = GetTranslateToken()
+            getTranslateToken.getTranslate = callback
+            getTranslateToken.doInBackground()
+            return null // Return handled via callback
+        }
     }
 
     private fun isKeyInvalid(key: String?): Boolean {
@@ -60,10 +164,9 @@ internal class GetTranslateToken {
         )
     }
 
-    // FIX #1: Creating a mock Call object for error handling
     private fun createMockCall(): Call {
         val mockRequest = Request.Builder().url("https://mock.error.call").build()
-        return OkHttpClient().newCall(mockRequest)
+        return (httpsClient ?: createOptimizedHttpClient()).newCall(mockRequest)
     }
 
     private fun handleTranslationFailure(reason: String?, exception: Throwable?) {
@@ -114,9 +217,7 @@ internal class GetTranslateToken {
             try {
                 Utils.debugLog("$TAG: Attempting proxy query for Google translation: $proxyUri")
 
-                // Usa Android O (API 26) e superior com FLAGS para operações assíncronas
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    // Definir manualmente as constantes que só existem no Android O ou superior
                     val queryArgSelectionBehavior = "android:queryArgSelectionBehavior"
                     val selectionBehaviorStrict = 0
                     val extraHonoredArgs = "android:honorsExtraArgs"
@@ -129,7 +230,6 @@ internal class GetTranslateToken {
 
                     cursor = resolver.query(proxyUri, arrayOf("translate"), queryArgs, null)
                 } else {
-                    // Fallback para API antiga
                     cursor = resolver.query(proxyUri, arrayOf("translate"), null, null, null)
                 }
 
@@ -155,9 +255,7 @@ internal class GetTranslateToken {
                 try {
                     Utils.debugLog("$TAG: Attempting direct query for Google translation: $directUri")
 
-                    // Usa Android O (API 26) e superior com FLAGS para operações assíncronas
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        // Definir manualmente as constantes que só existem no Android O ou superior
                         val queryArgSelectionBehavior = "android:queryArgSelectionBehavior"
                         val selectionBehaviorStrict = 0
                         val extraHonoredArgs = "android:honorsExtraArgs"
@@ -170,7 +268,6 @@ internal class GetTranslateToken {
 
                         cursor = resolver.query(directUri, arrayOf("translate"), queryArgs, null)
                     } else {
-                        // Fallback para API antiga
                         cursor = resolver.query(directUri, arrayOf("translate"), null, null, null)
                     }
 
@@ -210,14 +307,11 @@ internal class GetTranslateToken {
             return
         }
 
-        // Check if we're in batch mode - batch is ONLY supported for Microsoft
         val isBatchMode = callback.stringsToBeTrans?.isNotEmpty() == true
 
-        // Clear out batch data if we're not using Microsoft
         if (isBatchMode && PreferenceList.TranslatorProvider != "m") {
             Log.w(TAG, "Batch translation requested but provider is ${PreferenceList.TranslatorProvider}, not Microsoft. Converting to single item.")
 
-            // Take just the first item if there are any
             if (callback.stringsToBeTrans?.isNotEmpty() == true && callback.callbackDataList?.isNotEmpty() == true) {
                 callback.stringToBeTrans = callback.stringsToBeTrans!![0]
                 val callbackInfo = callback.callbackDataList!![0]
@@ -226,12 +320,10 @@ internal class GetTranslateToken {
                 callback.canCallOriginal = callbackInfo.canCallOriginal
             }
 
-            // Clear the batch lists
             callback.stringsToBeTrans = null
             callback.callbackDataList = null
         }
 
-        // Re-check batch mode after potential conversion to single item
         val isActuallyBatchMode = callback.stringsToBeTrans?.isNotEmpty() == true && PreferenceList.TranslatorProvider == "m"
 
         val textToTranslate = if (!isActuallyBatchMode) {
@@ -240,18 +332,12 @@ internal class GetTranslateToken {
                 return
             }
         } else {
-            // In batch mode, we don't need a single text to translate as we'll process the list
-            "BATCH_MODE" // This is just a placeholder
+            "BATCH_MODE"
         }
 
-        // Verificamos apenas se o contexto existe, sem criar variável não utilizada
         if (Alltrans.context == null) {
             Log.e(TAG, "Static context is null. Aborting.")
-            // Não estamos criando exceção que não será lançada - apenas passando mensagem de erro
-            handleTranslationFailure(
-                "Static context is null",
-                null
-            )
+            handleTranslationFailure("Static context is null", null)
             return
         }
 
@@ -262,21 +348,14 @@ internal class GetTranslateToken {
 
             if (fromLang != "auto" && fromLang == toLang) {
                 Log.i(TAG, "Skipping translation: Source and Target languages are identical ($fromLang).")
-                // textToTranslate is already defined and handles nullability for single mode
-                // For this specific check, we are primarily concerned with single translation mode
-                // as "auto" is often forced or default for batch, making this condition less likely for batch.
 
                 val mockRequest = Request.Builder().url("https://mock.identical.language.skip").build()
-                // It's generally better to use an existing OkHttpClient instance if available and configured.
-                // However, for a simple mock call like this, a new default instance is acceptable
-                // if `httpsClient` is not readily available or appropriate here.
-                // For consistency with how mock calls are created elsewhere (e.g. createMockCall), let's use a new one.
-                val mockCall = OkHttpClient().newCall(mockRequest)
+                val mockCall = (httpsClient ?: createOptimizedHttpClient()).newCall(mockRequest)
                 val responseBody = (textToTranslate ?: "").toResponseBody("text/plain".toMediaTypeOrNull())
                 val mockResponse = Response.Builder()
                     .request(mockRequest)
                     .protocol(Protocol.HTTP_2)
-                    .code(200) // OK
+                    .code(200)
                     .message("OK (Skipped - Source and Target languages are identical)")
                     .body(responseBody)
                     .build()
@@ -284,7 +363,7 @@ internal class GetTranslateToken {
                 Handler(Looper.getMainLooper()).post {
                     callback.onResponse(mockCall, mockResponse)
                 }
-                return // Exit doInBackground early
+                return
             }
 
             if (isActuallyBatchMode) {
@@ -295,80 +374,48 @@ internal class GetTranslateToken {
 
             when (provider) {
                 "g" -> {
-                    // Google provider doesn't support batch mode, always use single mode
-                    Utils.debugLog("$TAG: Dispatching Google Provider query to background executor for: [$textToTranslate]")
-                    googleQueryExecutor.submit {
-                        var result: String? = textToTranslate
-                        try {
-                            result = queryGoogleProvider(
-                                textToTranslate,
-                                fromLang,
-                                toLang
-                            )
-                        } catch (t: Throwable) {
-                            handleTranslationFailure(
-                                "Error executing Google Provider query in background",
-                                t
-                            )
-                        }
+                    Utils.debugLog("$TAG: Processing Google Provider query for: [$textToTranslate]")
+                    var result: String? = textToTranslate
+                    try {
+                        result = queryGoogleProvider(textToTranslate, fromLang, toLang)
+                    } catch (t: Throwable) {
+                        handleTranslationFailure("Error executing Google Provider query", t)
+                    }
 
-                        var finalResult = result
-                        var responseCode = 200
-                        var responseMessage = "OK (from Provider Query)"
+                    var finalResult = result
+                    var responseCode = 200
+                    var responseMessage = "OK (from Provider Query)"
 
-                        if (finalResult == GtransProvider.MLKIT_MODEL_UNAVAILABLE_ERROR) {
-                            Utils.debugLog("$TAG: ML Kit Model Unavailable Error received from GtransProvider for text: [$textToTranslate]")
-                            // Tenta obter o contexto para a mensagem de erro amigável
-                            val errorDisplayMessage = Alltrans.context?.getString(R.string.mlkit_model_unavailable_user_message) ?: "ML Kit translation model not downloaded. Please download it via Model Management."
-                            finalResult = errorDisplayMessage // Passa a mensagem amigável
-                            // Poderia usar um código de erro HTTP customizado ou uma flag no corpo da resposta
-                            // se o callback onResponse pudesse lidar com isso de forma mais estruturada.
-                            // Por agora, a mensagem de erro é passada como o texto traduzido.
-                            // O callback original não será chamado com este texto se userData for TextView,
-                            // pois GetTranslate.triggerSingleCallback verifica se finalString != originalString.
-                            // No entanto, para outros OriginalCallable, pode ser chamado.
-                            // Idealmente, onResponse teria um parâmetro isError ou um callback de erro separado.
-                            // Para este exercício, estamos priorizando a mensagem ao usuário.
-                            responseMessage = "ML Kit Model Unavailable" // Para logging ou diferenciação
-                            // Não altere responseCode para erro aqui, pois onResponse espera um sucesso para processar o corpo.
-                            // A lógica em GetTranslate.onResponse tratará isso como uma "tradução" (que é a mensagem de erro).
-                        }
+                    if (finalResult == GtransProvider.MLKIT_MODEL_UNAVAILABLE_ERROR) {
+                        Utils.debugLog("$TAG: ML Kit Model Unavailable Error received from GtransProvider for text: [$textToTranslate]")
+                        val errorDisplayMessage = Alltrans.context?.getString(R.string.mlkit_model_unavailable_user_message) ?: "ML Kit translation model not downloaded. Please download it via Model Management."
+                        finalResult = errorDisplayMessage
+                        responseMessage = "ML Kit Model Unavailable"
+                    }
 
-                        val mockRequest =
-                            Request.Builder().url("https://mock.google.translate.query").build()
-                        val mockCall = OkHttpClient().newCall(mockRequest)
-                        val response = Response.Builder()
-                            .request(mockRequest)
-                            .code(responseCode).message(responseMessage)
-                            .protocol(Protocol.HTTP_2)
-                            .body((finalResult ?: textToTranslate ?: "").toResponseBody(null)) // Fallback para texto original se finalResult for nulo
-                            .build()
+                    val mockRequest = Request.Builder().url("https://mock.google.translate.query").build()
+                    val mockCall = (httpsClient ?: createOptimizedHttpClient()).newCall(mockRequest)
+                    val response = Response.Builder()
+                        .request(mockRequest)
+                        .code(responseCode).message(responseMessage)
+                        .protocol(Protocol.HTTP_2)
+                        .body((finalResult ?: textToTranslate ?: "").toResponseBody(null))
+                        .build()
 
-                        Handler(Looper.getMainLooper()).post {
-                            getTranslate?.let { currentCallback ->
-                                try {
-                                    currentCallback.onResponse(mockCall, response)
-                                } catch (t: Throwable) {
-                                    Log.e(
-                                        TAG,
-                                        "Error executing getTranslate.onResponse in handler for text: [$textToTranslate]",
-                                        t
-                                    )
-                                    // Para falhas no handler, ainda use handleTranslationFailure
-                                    // para garantir que o callback original seja chamado se aplicável.
-                                    handleTranslationFailure("Error in onResponse callback handler for text: [$textToTranslate]", t)
-                                }
-                            } ?: Log.w(TAG, "getTranslate became null before executing handler for text: [$textToTranslate].")
-                        }
+                    Handler(Looper.getMainLooper()).post {
+                        getTranslate?.let { currentCallback ->
+                            try {
+                                currentCallback.onResponse(mockCall, response)
+                            } catch (t: Throwable) {
+                                Log.e(TAG, "Error executing getTranslate.onResponse in handler for text: [$textToTranslate]", t)
+                                handleTranslationFailure("Error in onResponse callback handler for text: [$textToTranslate]", t)
+                            }
+                        } ?: Log.w(TAG, "getTranslate became null before executing handler for text: [$textToTranslate].")
                     }
                 }
                 "y" -> {
-                    // Yandex doesn't support batch mode, ensure we're using single mode
                     val httpClient = httpsClient ?: run {
-                        handleTranslationFailure(
-                            "OkHttpClient is null for Yandex",
-                            null
-                        )
+                        handleTranslationFailure("OkHttpClient is null for Yandex", null)
                         return
                     }
 
@@ -376,10 +423,7 @@ internal class GetTranslateToken {
 
                     val key = PreferenceList.SubscriptionKey ?: ""
                     if (isKeyInvalid(key)) {
-                        handleTranslationFailure(
-                            "Yandex API key is invalid.",
-                            null
-                        )
+                        handleTranslationFailure("Yandex API key is invalid.", null)
                         return
                     }
 
@@ -398,10 +442,7 @@ internal class GetTranslateToken {
                 }
                 "m" -> {
                     val httpClient = httpsClient ?: run {
-                        handleTranslationFailure(
-                            "OkHttpClient is null for Microsoft",
-                            null
-                        )
+                        handleTranslationFailure("OkHttpClient is null for Microsoft", null)
                         return
                     }
 
@@ -409,10 +450,7 @@ internal class GetTranslateToken {
 
                     val key = PreferenceList.SubscriptionKey ?: ""
                     if (isKeyInvalid(key)) {
-                        handleTranslationFailure(
-                            "Microsoft API key is invalid.",
-                            null
-                        )
+                        handleTranslationFailure("Microsoft API key is invalid.", null)
                         return
                     }
 
@@ -425,9 +463,7 @@ internal class GetTranslateToken {
                     val fullURL = baseURL + languageURL
                     val requestBodyJson: String
 
-                    // Only Microsoft supports true batch mode
                     if (isActuallyBatchMode && PreferenceList.CurrentAppMicrosoftBatchEnabled) {
-                        // Batch Microsoft Request
                         val batchStrings = callback.stringsToBeTrans ?: emptyList()
                         Utils.debugLog("$TAG: Preparing batch Microsoft request for ${batchStrings.size} strings.")
                         val jsonArray = JSONArray()
@@ -438,11 +474,10 @@ internal class GetTranslateToken {
                         }
                         requestBodyJson = jsonArray.toString()
                     } else {
-                        // Single Microsoft Request
                         Utils.debugLog("$TAG: Preparing single Microsoft request for: '$textToTranslate'")
                         val jsonArray = JSONArray()
                         val jsonObject = JSONObject()
-                        jsonObject.put("Text", textToTranslate) // textToTranslate is already checked for nullity
+                        jsonObject.put("Text", textToTranslate)
                         jsonArray.put(jsonObject)
                         requestBodyJson = jsonArray.toString()
                     }
@@ -452,7 +487,6 @@ internal class GetTranslateToken {
                         .addHeader("Ocp-Apim-Subscription-Key", key)
                         .addHeader("Content-Type", "application/json; charset=UTF-8")
 
-                    // Adicionar header de região se disponível
                     val region = PreferenceList.SubscriptionRegion
                     if (!region.isNullOrBlank()) {
                         val trimmedRegion = region.trim()
@@ -466,7 +500,6 @@ internal class GetTranslateToken {
                     Utils.debugLog("Microsoft Request URL: $fullURL")
                     Utils.debugLog("Microsoft Request Body: $requestBodyJson")
 
-                    // Log different messages based on the mode
                     val logText = if (isActuallyBatchMode && PreferenceList.CurrentAppMicrosoftBatchEnabled) {
                         "batch of ${callback.stringsToBeTrans?.size ?: 0} strings"
                     } else {
@@ -476,10 +509,7 @@ internal class GetTranslateToken {
                     httpClient.newCall(request).enqueue(callback)
                 }
                 else -> {
-                    handleTranslationFailure(
-                        "Unknown TranslatorProvider selected: $provider",
-                        null
-                    )
+                    handleTranslationFailure("Unknown TranslatorProvider selected: $provider", null)
                 }
             }
         } catch (e: IOException) {
@@ -494,12 +524,51 @@ internal class GetTranslateToken {
     }
 
     companion object {
+        private val CPU_COUNT = Runtime.getRuntime().availableProcessors()
+        private val CORE_POOL_SIZE = maxOf(2, minOf(CPU_COUNT - 1, 4))
+        private val MAX_POOL_SIZE = CPU_COUNT * 2 + 1
+        private val KEEP_ALIVE_TIME = 60L
+
+        // Optimized thread pools
+        private val networkExecutor: ExecutorService = ThreadPoolExecutor(
+            CORE_POOL_SIZE,
+            MAX_POOL_SIZE,
+            KEEP_ALIVE_TIME, TimeUnit.SECONDS,
+            LinkedBlockingQueue(200),
+            OptimizedThreadFactory("AllTrans-Network")
+        ).apply {
+            allowCoreThreadTimeOut(true)
+        }
+
+        private val googleQueryExecutor: ExecutorService = ThreadPoolExecutor(
+            2, // Smaller pool for Google queries (usually faster)
+            4,
+            KEEP_ALIVE_TIME, TimeUnit.SECONDS,
+            LinkedBlockingQueue(100),
+            OptimizedThreadFactory("AllTrans-Google")
+        ).apply {
+            allowCoreThreadTimeOut(true)
+        }
+
+        // Optimized I/O executor for file operations
+        private val ioExecutor: ExecutorService = ThreadPoolExecutor(
+            1,
+            3,
+            KEEP_ALIVE_TIME, TimeUnit.SECONDS,
+            LinkedBlockingQueue(50),
+            OptimizedThreadFactory("AllTrans-IO")
+        ).apply {
+            allowCoreThreadTimeOut(true)
+        }
+
+        // Request deduplication
+        private val activeRequests = ConcurrentHashMap<String, CompletableFuture<String?>>()
+
         private var httpsClient: OkHttpClient? = null
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private const val DEFAULT_KEY_PLACEHOLDER_PREFIX_PT = "Insira a sua chave"
         private const val DEFAULT_KEY_PLACEHOLDER_PREFIX_EN = "Enter"
         private const val TAG = "AllTrans:GetTranslateToken"
-        private val googleQueryExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
         private fun createHttpsClientCache(): Cache? {
             val context = Alltrans.context ?: run {
@@ -507,7 +576,7 @@ internal class GetTranslateToken {
                 return null
             }
 
-            val cacheSize = 1024 * 1024
+            val cacheSize = 2 * 1024 * 1024 // Increased to 2MB
             val cacheDirectory = File(context.cacheDir, "AllTransHTTPsCache")
 
             return try {
@@ -515,6 +584,76 @@ internal class GetTranslateToken {
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to create cache...", e)
                 null
+            }
+        }
+
+        // Submit I/O tasks to dedicated executor
+        fun submitIoTask(task: Runnable) {
+            ioExecutor.submit(task)
+        }
+
+        // Submit I/O tasks that return values
+        fun <T> submitIoTask(task: java.util.concurrent.Callable<T>): CompletableFuture<T> {
+            return CompletableFuture.supplyAsync({
+                try {
+                    task.call()
+                } catch (e: Exception) {
+                    throw RuntimeException(e)
+                }
+            }, ioExecutor)
+        }
+
+        // Get executor stats for monitoring
+        fun getExecutorStats(): String {
+            val networkStats = if (networkExecutor is ThreadPoolExecutor) {
+                "Network: ${networkExecutor.activeCount}/${networkExecutor.poolSize}, Queue: ${networkExecutor.queue.size}"
+            } else "Network: N/A"
+
+            val googleStats = if (googleQueryExecutor is ThreadPoolExecutor) {
+                "Google: ${googleQueryExecutor.activeCount}/${googleQueryExecutor.poolSize}, Queue: ${googleQueryExecutor.queue.size}"
+            } else "Google: N/A"
+
+            val ioStats = if (ioExecutor is ThreadPoolExecutor) {
+                "I/O: ${ioExecutor.activeCount}/${ioExecutor.poolSize}, Queue: ${ioExecutor.queue.size}"
+            } else "I/O: N/A"
+
+            return "$networkStats | $googleStats | $ioStats"
+        }
+
+        // Cleanup method for shutdown
+        fun shutdown() {
+            Utils.debugLog("$TAG: Shutting down thread pools...")
+
+            listOf(networkExecutor, googleQueryExecutor, ioExecutor).forEach { executor ->
+                executor.shutdown()
+                try {
+                    if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                        executor.shutdownNow()
+                    }
+                } catch (e: InterruptedException) {
+                    executor.shutdownNow()
+                    Thread.currentThread().interrupt()
+                }
+            }
+
+            httpsClient?.dispatcher?.executorService?.shutdown()
+            activeRequests.clear()
+
+            Utils.debugLog("$TAG: Thread pools shutdown complete.")
+        }
+    }
+
+    // Optimized thread factory
+    private class OptimizedThreadFactory(private val namePrefix: String) : ThreadFactory {
+        private val threadNumber = AtomicInteger(1)
+
+        override fun newThread(r: Runnable): Thread {
+            return Thread(r, "$namePrefix-${threadNumber.getAndIncrement()}").apply {
+                isDaemon = true
+                priority = Thread.NORM_PRIORITY - 1 // Slightly lower priority
+                uncaughtExceptionHandler = Thread.UncaughtExceptionHandler { thread, ex ->
+                    Log.e(TAG, "Uncaught exception in thread ${thread.name}", ex)
+                }
             }
         }
     }

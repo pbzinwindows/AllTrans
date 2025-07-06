@@ -10,6 +10,7 @@ import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONException
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 
 class GetTranslate : Callback {
     private val TAG = "AllTrans:GetTranslate"
@@ -22,8 +23,22 @@ class GetTranslate : Callback {
     private var translatedString: String? = null
     var pendingCompositeKey: Int = 0
 
+    // Thread safety for response handling
+    private val responseHandled = AtomicBoolean(false)
+    private val failureHandled = AtomicBoolean(false)
+
     override fun onResponse(call: Call, response: Response) {
-        val isBatchMicrosoft = PreferenceList.TranslatorProvider == "m" && stringsToBeTrans?.isNotEmpty() == true && callbackDataList?.isNotEmpty() == true
+        // Prevent duplicate response handling
+        if (!responseHandled.compareAndSet(false, true)) {
+            Utils.debugLog("$TAG: Response already handled for call: ${call.request().url}")
+            response.body?.close()
+            return
+        }
+
+        val startTime = System.currentTimeMillis()
+        val isBatchMicrosoft = PreferenceList.TranslatorProvider == "m" &&
+                stringsToBeTrans?.isNotEmpty() == true &&
+                callbackDataList?.isNotEmpty() == true
         var responseBodyString: String? = null
 
         try {
@@ -40,108 +55,10 @@ class GetTranslate : Callback {
                 responseBodyString = response.body!!.string()
                 if (isBatchMicrosoft) {
                     Utils.debugLog("$TAG: Batch Microsoft response: $responseBodyString")
-                    try {
-                        val jsonResponseArray = JSONArray(responseBodyString)
-                        val toLang = PreferenceList.TranslateToLanguage
-                        for (i in 0 until jsonResponseArray.length()) {
-                            if (i >= callbackDataList!!.size) {
-                                Log.e(TAG, "Mismatch between response array size (${jsonResponseArray.length()}) and callbackDataList size (${callbackDataList!!.size})")
-                                break
-                            }
-
-                            val item = jsonResponseArray.getJSONObject(i)
-                            var currentItemTranslatedText: String = item.getJSONArray("translations").getJSONObject(0).getString("text").orEmpty()
-                            val callbackInfo = callbackDataList!![i]
-                            val originalItemString = callbackInfo.originalString
-
-                            if (PreferenceList.TranslateFromLanguage == "auto") {
-                                val detectedLang = item.optJSONObject("detectedLanguage")?.optString("language")
-                                if (detectedLang != null && detectedLang == toLang) {
-                                    Utils.debugLog("$TAG: Batch MS: Auto-detected language ($detectedLang) matches target ($toLang). Using original text: [$originalItemString]")
-                                    currentItemTranslatedText = originalItemString ?: ""
-                                }
-                            }
-
-                            val unescapedTranslatedText = Utils.XMLUnescape(currentItemTranslatedText) ?: ""
-                            if (originalItemString != null) {
-                                cacheTranslation(originalItemString, unescapedTranslatedText)
-                            }
-                            triggerSuccessCallback(unescapedTranslatedText, callbackInfo)
-                        }
-                    } catch (e: JSONException) {
-                        Log.e(TAG, "Error parsing BATCH Microsoft JSON response: ${Log.getStackTraceString(e)}\nResponse body was: $responseBodyString")
-                        handleBatchFailure(callbackDataList!!, "Batch JSON parsing error")
-                    }
+                    processBatchResponse(responseBodyString)
                     return
                 } else {
-                    val localOriginalString = stringToBeTrans
-                    Utils.debugLog("$TAG: Single translation response for [$localOriginalString]: $responseBodyString")
-                    var singleTranslatedText: String? = localOriginalString
-                    try {
-                        when (PreferenceList.TranslatorProvider) {
-                            "y" -> {
-                                responseBodyString?.let { nonNullResponseBody ->
-                                    singleTranslatedText = if (nonNullResponseBody.contains("<text>")) {
-                                        nonNullResponseBody.substring(nonNullResponseBody.indexOf("<text>") + 6, nonNullResponseBody.lastIndexOf("</text>"))
-                                    } else {
-                                        Log.w(TAG, "Unexpected Yandex response format: $nonNullResponseBody")
-                                        localOriginalString
-                                    }
-                                } ?: run {
-                                    Log.w(TAG, "Yandex response body was null, falling back to original.")
-                                    singleTranslatedText = localOriginalString
-                                }
-                            }
-                            "m" -> {
-                                responseBodyString?.let { nonNullResponseBody ->
-                                    try {
-                                        val jsonResponseObject = JSONArray(nonNullResponseBody).getJSONObject(0)
-                                        singleTranslatedText = jsonResponseObject.getJSONArray("translations").getJSONObject(0).getString("text").orEmpty()
-
-                                        if (PreferenceList.TranslateFromLanguage == "auto") {
-                                            val detectedLang = jsonResponseObject.optJSONObject("detectedLanguage")?.optString("language")
-                                            val toLang = PreferenceList.TranslateToLanguage
-                                            if (detectedLang != null && detectedLang == toLang) {
-                                                Utils.debugLog("$TAG: Single MS: Auto-detected language ($detectedLang) matches target ($toLang). Using original text: [$localOriginalString]")
-                                                singleTranslatedText = localOriginalString
-                                            } else {
-                                                singleTranslatedText = Utils.XMLUnescape(singleTranslatedText.orEmpty())
-                                            }
-                                        } else {
-                                            singleTranslatedText = Utils.XMLUnescape(singleTranslatedText.orEmpty())
-                                        }
-                                    } catch (jsonEx: JSONException) {
-                                        Log.e(TAG, "Error parsing SINGLE Microsoft JSON: ${Log.getStackTraceString(jsonEx)}\nResponse body was: $nonNullResponseBody")
-                                        singleTranslatedText = localOriginalString
-                                    }
-                                } ?: run {
-                                    Log.w(TAG, "Microsoft (single) response body was null, falling back to original.")
-                                    singleTranslatedText = localOriginalString
-                                }
-                            }
-                            else -> {
-                                singleTranslatedText = responseBodyString
-                                singleTranslatedText = Utils.XMLUnescape(singleTranslatedText.orEmpty())
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error processing SINGLE translation response: ${Log.getStackTraceString(e)}\nResponse body might have been: $responseBodyString")
-                        singleTranslatedText = localOriginalString
-                    }
-                    translatedString = singleTranslatedText ?: localOriginalString
-                    if (translatedString.isNullOrEmpty() && !localOriginalString.isNullOrEmpty()) {
-                        Utils.debugLog("$TAG: Translated string is null or empty, but original was not. Using original: [$localOriginalString]")
-                        translatedString = localOriginalString
-                    } else if (translatedString.isNullOrEmpty()) {
-                        Utils.debugLog("$TAG: Translated string is null or empty, and original is also null/empty. Setting to empty string.")
-                        translatedString = ""
-                    }
-
-                    if (localOriginalString != null && translatedString != null) {
-                        cacheTranslation(localOriginalString, translatedString)
-                    } else {
-                        Utils.debugLog("$TAG: Skipping cacheTranslation due to null values: original=[$localOriginalString], translated=[$translatedString]")
-                    }
+                    processSingleResponse(responseBodyString)
                 }
             }
         } catch (e: Throwable) {
@@ -156,9 +73,157 @@ class GetTranslate : Callback {
             response.body?.close()
             if (!isBatchMicrosoft) {
                 val finalString: String = translatedString ?: stringToBeTrans ?: ""
-                Utils.debugLog("$TAG: Final single translation result before callback: [$finalString]")
-                triggerSingleCallback(finalString, stringToBeTrans, userData, originalCallable, canCallOriginal, pendingCompositeKey) // Passar pendingCompositeKey
+                val processingTime = System.currentTimeMillis() - startTime
+                Utils.debugLog("$TAG: Single response processed in ${processingTime}ms: [$finalString]")
+                triggerSingleCallback(finalString, stringToBeTrans, userData, originalCallable, canCallOriginal, pendingCompositeKey)
             }
+        }
+    }
+
+    private fun processBatchResponse(responseBodyString: String) {
+        try {
+            val jsonResponseArray = JSONArray(responseBodyString)
+            val toLang = PreferenceList.TranslateToLanguage
+
+            // Process in parallel for large batches
+            val callbackList = callbackDataList!!
+            if (callbackList.size > 10) {
+                processBatchResponseParallel(jsonResponseArray, callbackList, toLang)
+            } else {
+                processBatchResponseSequential(jsonResponseArray, callbackList, toLang)
+            }
+        } catch (e: JSONException) {
+            Log.e(TAG, "Error parsing BATCH Microsoft JSON response: ${Log.getStackTraceString(e)}\nResponse body was: $responseBodyString")
+            handleBatchFailure(callbackDataList!!, "Batch JSON parsing error")
+        }
+    }
+
+    private fun processBatchResponseSequential(jsonResponseArray: JSONArray, callbackList: List<CallbackInfo>, toLang: String?) {
+        for (i in 0 until jsonResponseArray.length()) {
+            if (i >= callbackList.size) {
+                Log.e(TAG, "Mismatch between response array size (${jsonResponseArray.length()}) and callbackDataList size (${callbackList.size})")
+                break
+            }
+
+            processBatchItem(jsonResponseArray.getJSONObject(i), callbackList[i], toLang)
+        }
+    }
+
+    private fun processBatchResponseParallel(jsonResponseArray: JSONArray, callbackList: List<CallbackInfo>, toLang: String?) {
+        val tasks = mutableListOf<Runnable>()
+
+        for (i in 0 until minOf(jsonResponseArray.length(), callbackList.size)) {
+            val item = jsonResponseArray.getJSONObject(i)
+            val callbackInfo = callbackList[i]
+
+            tasks.add {
+                processBatchItem(item, callbackInfo, toLang)
+            }
+        }
+
+        // Execute tasks in parallel using the network executor
+        GetTranslateToken.submitIoTask {
+            tasks.parallelStream().forEach { it.run() }
+        }
+    }
+
+    private fun processBatchItem(item: org.json.JSONObject, callbackInfo: CallbackInfo, toLang: String?) {
+        try {
+            var currentItemTranslatedText: String = item.getJSONArray("translations").getJSONObject(0).getString("text").orEmpty()
+            val originalItemString = callbackInfo.originalString
+
+            if (PreferenceList.TranslateFromLanguage == "auto") {
+                val detectedLang = item.optJSONObject("detectedLanguage")?.optString("language")
+                if (detectedLang != null && detectedLang == toLang) {
+                    Utils.debugLog("$TAG: Batch MS: Auto-detected language ($detectedLang) matches target ($toLang). Using original text: [$originalItemString]")
+                    currentItemTranslatedText = originalItemString ?: ""
+                }
+            }
+
+            val unescapedTranslatedText = Utils.XMLUnescape(currentItemTranslatedText) ?: ""
+            if (originalItemString != null) {
+                cacheTranslation(originalItemString, unescapedTranslatedText)
+            }
+            triggerSuccessCallback(unescapedTranslatedText, callbackInfo)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing batch item for: ${callbackInfo.originalString}", e)
+            triggerSuccessCallback(callbackInfo.originalString ?: "", callbackInfo)
+        }
+    }
+
+    private fun processSingleResponse(responseBodyString: String) {
+        val localOriginalString = stringToBeTrans
+        Utils.debugLog("$TAG: Single translation response for [$localOriginalString]: $responseBodyString")
+        var singleTranslatedText: String? = localOriginalString
+
+        try {
+            when (PreferenceList.TranslatorProvider) {
+                "y" -> {
+                    responseBodyString?.let { nonNullResponseBody ->
+                        singleTranslatedText = if (nonNullResponseBody.contains("<text>")) {
+                            nonNullResponseBody.substring(nonNullResponseBody.indexOf("<text>") + 6, nonNullResponseBody.lastIndexOf("</text>"))
+                        } else {
+                            Log.w(TAG, "Unexpected Yandex response format: $nonNullResponseBody")
+                            localOriginalString
+                        }
+                    } ?: run {
+                        Log.w(TAG, "Yandex response body was null, falling back to original.")
+                        singleTranslatedText = localOriginalString
+                    }
+                }
+                "m" -> {
+                    responseBodyString?.let { nonNullResponseBody ->
+                        try {
+                            val jsonResponseObject = JSONArray(nonNullResponseBody).getJSONObject(0)
+                            singleTranslatedText = jsonResponseObject.getJSONArray("translations").getJSONObject(0).getString("text").orEmpty()
+
+                            if (PreferenceList.TranslateFromLanguage == "auto") {
+                                val detectedLang = jsonResponseObject.optJSONObject("detectedLanguage")?.optString("language")
+                                val toLang = PreferenceList.TranslateToLanguage
+                                if (detectedLang != null && detectedLang == toLang) {
+                                    Utils.debugLog("$TAG: Single MS: Auto-detected language ($detectedLang) matches target ($toLang). Using original text: [$localOriginalString]")
+                                    singleTranslatedText = localOriginalString
+                                } else {
+                                    singleTranslatedText = Utils.XMLUnescape(singleTranslatedText.orEmpty())
+                                }
+                            } else {
+                                singleTranslatedText = Utils.XMLUnescape(singleTranslatedText.orEmpty())
+                            }
+                        } catch (jsonEx: JSONException) {
+                            Log.e(TAG, "Error parsing SINGLE Microsoft JSON: ${Log.getStackTraceString(jsonEx)}\nResponse body was: $nonNullResponseBody")
+                            singleTranslatedText = localOriginalString
+                        }
+                    } ?: run {
+                        Log.w(TAG, "Microsoft (single) response body was null, falling back to original.")
+                        singleTranslatedText = localOriginalString
+                    }
+                }
+                else -> {
+                    singleTranslatedText = responseBodyString
+                    singleTranslatedText = Utils.XMLUnescape(singleTranslatedText.orEmpty())
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing SINGLE translation response: ${Log.getStackTraceString(e)}\nResponse body might have been: $responseBodyString")
+            singleTranslatedText = localOriginalString
+        }
+
+        translatedString = singleTranslatedText ?: localOriginalString
+        if (translatedString.isNullOrEmpty() && !localOriginalString.isNullOrEmpty()) {
+            Utils.debugLog("$TAG: Translated string is null or empty, but original was not. Using original: [$localOriginalString]")
+            translatedString = localOriginalString
+        } else if (translatedString.isNullOrEmpty()) {
+            Utils.debugLog("$TAG: Translated string is null or empty, and original is also null/empty. Setting to empty string.")
+            translatedString = ""
+        }
+
+        if (localOriginalString != null && translatedString != null) {
+            // Cache update asynchronously
+            GetTranslateToken.submitIoTask {
+                cacheTranslation(localOriginalString, translatedString)
+            }
+        } else {
+            Utils.debugLog("$TAG: Skipping cacheTranslation due to null values: original=[$localOriginalString], translated=[$translatedString]")
         }
     }
 
@@ -187,18 +252,18 @@ class GetTranslate : Callback {
 
     private fun triggerSuccessCallback(translatedText: String, callbackInfo: CallbackInfo) {
         val keyToRemoveFromPending = callbackInfo.pendingCompositeKey
+        val delay = PreferenceList.Delay.toLong()
 
-        Handler(Looper.getMainLooper()).postDelayed({
+        val task = Runnable {
             try {
                 if (callbackInfo.userData is TextView) {
                     val tv = callbackInfo.userData
-                    if (translatedText != callbackInfo.originalString || !tv.text.toString().equals(translatedText)) { // Adicionado verificação se o texto já é o traduzido
+                    if (translatedText != callbackInfo.originalString || !tv.text.toString().equals(translatedText)) {
                         Utils.debugLog("$TAG: Batch: Updating TextView (${tv.hashCode()}) with key ($keyToRemoveFromPending) with translated text: [$translatedText]")
-                        tv.setTag(Alltrans.ALLTRANS_TRANSLATION_APPLIED_TAG_KEY, true) // Definir tag ANTES de setText
+                        tv.setTag(Alltrans.ALLTRANS_TRANSLATION_APPLIED_TAG_KEY, true)
                         tv.text = translatedText
                     } else {
                         Utils.debugLog("$TAG: Batch: Skipping TextView update for (${tv.hashCode()}), key ($keyToRemoveFromPending), translated text is same as original or already applied: [$translatedText]")
-                        // Mesmo se não atualizarmos, removemos da pendência
                     }
                 } else if (callbackInfo.canCallOriginal && callbackInfo.originalCallable != null) {
                     Utils.debugLog("$TAG: Batch: Calling originalCallable.callOriginalMethod for key ($keyToRemoveFromPending) with text: [$translatedText]")
@@ -215,17 +280,24 @@ class GetTranslate : Callback {
                     }
                 }
             }
-        }, PreferenceList.Delay.toLong())
+        }
+
+        if (delay > 0) {
+            Handler(Looper.getMainLooper()).postDelayed(task, delay)
+        } else {
+            Handler(Looper.getMainLooper()).post(task)
+        }
     }
 
-    // Modificado para aceitar pendingCompositeKey explicitamente
     private fun triggerSingleCallback(finalString: String, originalString: String?, currentLocalUserData: Any?, currentLocalOriginalCallable: OriginalCallable?, currentLocalCanCallOriginal: Boolean, keyToRemove: Int) {
-        Handler(Looper.getMainLooper()).postDelayed({
+        val delay = PreferenceList.Delay.toLong()
+
+        val task = Runnable {
             try {
                 if (currentLocalUserData is TextView) {
-                    if (finalString != originalString || !currentLocalUserData.text.toString().equals(finalString)) { // Adicionado verificação se o texto já é o traduzido
+                    if (finalString != originalString || !currentLocalUserData.text.toString().equals(finalString)) {
                         Utils.debugLog("$TAG: Single: Updating TextView (${currentLocalUserData.hashCode()}) with key ($keyToRemove) with translated text: [$finalString]")
-                        currentLocalUserData.setTag(Alltrans.ALLTRANS_TRANSLATION_APPLIED_TAG_KEY, true) // Definir tag ANTES de setText
+                        currentLocalUserData.setTag(Alltrans.ALLTRANS_TRANSLATION_APPLIED_TAG_KEY, true)
                         currentLocalUserData.text = finalString
                     } else {
                         Utils.debugLog("$TAG: Single: Skipping TextView update for (${currentLocalUserData.hashCode()}), key ($keyToRemove), translated text is same or already applied: [$finalString]")
@@ -245,14 +317,22 @@ class GetTranslate : Callback {
                     }
                 }
             }
-        }, PreferenceList.Delay.toLong())
+        }
+
+        if (delay > 0) {
+            Handler(Looper.getMainLooper()).postDelayed(task, delay)
+        } else {
+            Handler(Looper.getMainLooper()).post(task)
+        }
     }
 
     private fun handleBatchFailure(callbacks: List<CallbackInfo>, reason: String) {
         Utils.debugLog("$TAG: Handling batch failure: $reason")
+        val delay = PreferenceList.Delay.toLong()
+
         callbacks.forEach { cbInfo ->
             val keyToRemoveFromPending = cbInfo.pendingCompositeKey
-            Handler(Looper.getMainLooper()).postDelayed({
+            val task = Runnable {
                 try {
                     if (cbInfo.canCallOriginal && cbInfo.originalCallable != null) {
                         Utils.debugLog("$TAG: Batch: Calling originalCallable for item ${cbInfo.originalString} (key $keyToRemoveFromPending) on failure.")
@@ -269,25 +349,40 @@ class GetTranslate : Callback {
                         }
                     }
                 }
-            }, PreferenceList.Delay.toLong())
+            }
+
+            if (delay > 0) {
+                Handler(Looper.getMainLooper()).postDelayed(task, delay)
+            } else {
+                Handler(Looper.getMainLooper()).post(task)
+            }
         }
     }
 
     override fun onFailure(call: Call, e: IOException) {
-        val isBatchMicrosoft = PreferenceList.TranslatorProvider == "m" && stringsToBeTrans?.isNotEmpty() == true && callbackDataList?.isNotEmpty() == true
+        // Prevent duplicate failure handling
+        if (!failureHandled.compareAndSet(false, true)) {
+            Utils.debugLog("$TAG: Failure already handled for call: ${call.request().url}")
+            return
+        }
+
+        val isBatchMicrosoft = PreferenceList.TranslatorProvider == "m" &&
+                stringsToBeTrans?.isNotEmpty() == true &&
+                callbackDataList?.isNotEmpty() == true
 
         Log.e(TAG, "Network request failed for: [${if(isBatchMicrosoft) "BATCH of " + (stringsToBeTrans?.size ?: 0) + " items" else stringToBeTrans ?: "Unknown Single Item"}] Reason: ${Log.getStackTraceString(e)}")
 
         if (isBatchMicrosoft) {
             handleBatchFailure(callbackDataList!!, "Network Error: ${e.message}")
         } else {
-            val keyToRemove = pendingCompositeKey // Usa o da instância para single
+            val keyToRemove = pendingCompositeKey
             val localOriginalStringForSingle = stringToBeTrans
             val localUserDataForSingle = userData
             val localOriginalCallableForSingle = originalCallable
             val localCanCallOriginalForSingle = canCallOriginal
+            val delay = PreferenceList.Delay.toLong()
 
-            Handler(Looper.getMainLooper()).postDelayed({
+            val task = Runnable {
                 try {
                     if (localUserDataForSingle is TextView) {
                         Utils.debugLog("$TAG: Single: Network failure for TextView (key $keyToRemove), original text ($localOriginalStringForSingle) remains.")
@@ -304,7 +399,13 @@ class GetTranslate : Callback {
                         }
                     }
                 }
-            }, PreferenceList.Delay.toLong())
+            }
+
+            if (delay > 0) {
+                Handler(Looper.getMainLooper()).postDelayed(task, delay)
+            } else {
+                Handler(Looper.getMainLooper()).post(task)
+            }
         }
     }
 }
