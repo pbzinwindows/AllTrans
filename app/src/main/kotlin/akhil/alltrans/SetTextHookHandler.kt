@@ -6,7 +6,7 @@ import android.text.SpannableString
 import android.text.TextUtils
 import android.text.method.ScrollingMovementMethod
 import android.util.Log
-import android.view.View // Import para View.SCROLLBARS_INSIDE_INSET
+import android.view.View
 import android.widget.TextView
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
@@ -19,22 +19,20 @@ class SetTextHookHandler : XC_MethodHook() {
         private const val TAG = "AllTrans:SetTextHook"
         private val NUMERIC_PATTERN: Pattern = Pattern.compile("^[+-]?\\d+([.,]\\d+)?$")
         private val URL_LIKE_PATTERN: Pattern = Pattern.compile("^(https?://\\S+|[^\\s:/]+\\.[^\\s:/]+(/[\\S]*)?)$")
-        private val ACRONYM_LIKE_PATTERN: Pattern = Pattern.compile("^[A-Z0-9_\\-.:]{1,10}$") // Ajustado para permitir 1 char
+        private val ACRONYM_LIKE_PATTERN: Pattern = Pattern.compile("^[A-Z0-9_\\-.:]{1,10}$")
         private val TIMESTAMP_PATTERN: Pattern = Pattern.compile("^\\d{1,2}:\\d{2}(:\\d{2})?(\\s?(AM|PM))?$", Pattern.CASE_INSENSITIVE)
         private val WHITESPACE_PATTERN: Pattern = Pattern.compile("^\\s*$")
-        private const val MIN_LENGTH_FOR_TRANSLATION = 1 // Alterado para 1 para traduzir textos menores
+        private const val MIN_LENGTH_FOR_TRANSLATION = 1
 
         fun isNotWhiteSpace(text: String?): Boolean {
             return !text.isNullOrEmpty() && !WHITESPACE_PATTERN.matcher(text).matches()
         }
 
         fun shouldSkipTranslation(text: String): Boolean {
-            if (text.length < MIN_LENGTH_FOR_TRANSLATION && text.length > 0) { // Se MIN_LENGTH_FOR_TRANSLATION é 1, esta condição raramente será true
-                Utils.debugLog("$TAG: Skipping (too short, mas MIN_LENGTH é 1): [$text]") // Log ajustado
-                // return true; // Comentado para permitir tradução de 1 char se MIN_LENGTH_FOR_TRANSLATION for 1
+            if (text.length < MIN_LENGTH_FOR_TRANSLATION && text.length > 0) {
+                Utils.debugLog("$TAG: Skipping (too short, mas MIN_LENGTH é 1): [$text]")
             }
-            // Se o texto tem apenas 1 caractere e é uma letra ou símbolo comum, pode não valer a pena traduzir.
-            // Esta é uma heurística opcional.
+
             if (text.length == 1 && !Character.isLetterOrDigit(text[0])) {
                 // Utils.debugLog("$TAG: Skipping (single non-alphanumeric char): [$text]")
                 // return true; // Descomente se quiser pular símbolos únicos
@@ -49,18 +47,17 @@ class SetTextHookHandler : XC_MethodHook() {
                 return true
             }
             if (ACRONYM_LIKE_PATTERN.matcher(text).matches()) {
-                // Para acrônimos, talvez verificar se tem pelo menos uma letra
                 var hasLetter = false
-                for (char_acronym in text) { // Renomeado para evitar conflito
+                for (char_acronym in text) {
                     if (Character.isLetter(char_acronym)) {
                         hasLetter = true
                         break
                     }
                 }
-                if (!hasLetter && text.length <=3) { // Ex: "1.0", "-", ":"
+                if (!hasLetter && text.length <=3) {
                     Utils.debugLog("$TAG: Skipping (acronym-like, no letters, short): [$text]")
                     return true
-                } else if (hasLetter) { // Se tem letras, é um acrônimo mais provável
+                } else if (hasLetter) {
                     Utils.debugLog("$TAG: Skipping (acronym-like with letters): [$text]")
                     return true
                 }
@@ -137,7 +134,7 @@ class SetTextHookHandler : XC_MethodHook() {
                 return null
             }
         }
-        Utils.debugLog("$TAG ($compositeKey): Não encontrado no cache: [$text]") // Cache habilitado, mas item não encontrado
+        Utils.debugLog("$TAG ($compositeKey): Não encontrado no cache: [$text]")
         return null
     }
 
@@ -220,12 +217,10 @@ class SetTextHookHandler : XC_MethodHook() {
 
         Utils.debugLog("$logPrefix - Texto Original: [${originalText.replace("\n", "\\n")}]")
 
-        if (!PreferenceList.Enabled) {
-            Utils.debugLog("$logPrefix - Módulo globalmente DESABILITADO. Pulando.")
-            return
-        }
-        if (!PreferenceList.LocalEnabled) {
-            Utils.debugLog("$logPrefix - Módulo DESABILITADO para este app (${textView.context?.packageName}). Pulando.")
+        // Verificar se o AllTrans está habilitado para este app em tempo real
+        val packageName = textView.context?.packageName
+        if (!PreferenceManager.isEnabledForPackage(textView.context, packageName)) {
+            Utils.debugLog("$logPrefix - AllTrans DESABILITADO para este app ($packageName). Pulando.")
             return
         }
 
@@ -267,7 +262,6 @@ class SetTextHookHandler : XC_MethodHook() {
 
             textView.setTag(Alltrans.ALLTRANS_TRANSLATION_APPLIED_TAG_KEY, true) // Marca antes de modificar
             modifyArgument(param, cachedTranslation)
-            // Não remove da lista de pendentes pois não foi adicionado
             return
         }
 
@@ -282,20 +276,15 @@ class SetTextHookHandler : XC_MethodHook() {
     private fun configureScroll(textView: TextView) {
         try {
             if (textView.movementMethod == null && !textView.isSingleLine) {
-                // Aplicar scroll vertical para multiline TextViews sem movementMethod
                 textView.isVerticalScrollBarEnabled = true
                 textView.movementMethod = ScrollingMovementMethod.getInstance()
                 textView.scrollBarStyle = View.SCROLLBARS_INSIDE_INSET
-                // Opcional: permitir que o TextView capture o foco para scroll com D-Pad/teclado
-                // textView.isFocusable = true
-                // textView.isFocusableInTouchMode = true
             } else if (textView.isSingleLine) {
-                // Aplicar marquee para singleLine TextViews
                 textView.ellipsize = TextUtils.TruncateAt.MARQUEE
-                textView.marqueeRepeatLimit = -1 // Loop infinito
+                textView.marqueeRepeatLimit = -1
                 textView.isFocusable = true
                 textView.isFocusableInTouchMode = true
-                textView.isSelected = true // Inicia o marquee
+                textView.isSelected = true
             }
         } catch (e: Throwable) {
             Log.w(TAG, "Falha ao configurar scroll para TextView ${textView.hashCode()}", e)

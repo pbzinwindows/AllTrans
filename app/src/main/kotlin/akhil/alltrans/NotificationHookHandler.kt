@@ -52,7 +52,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
                 .getId() + " and it has extras " + notification.extras
         )
 
-        //        First simple Charsequences
         var charseqs = arrayOf<String?>(
             Notification.EXTRA_TITLE,
             Notification.EXTRA_TITLE_BIG,
@@ -63,7 +62,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
         )
         Utils.debugLog(charseqs.contentToString() + "")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            // Fix para o erro de tipo de array
             val newCharseqs = Array<String?>(charseqs.size + 1) { i ->
                 if (i < charseqs.size) charseqs[i] else Notification.EXTRA_BIG_TEXT
             }
@@ -71,7 +69,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
             Utils.debugLog(charseqs.contentToString() + "")
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            // Fix para o erro de tipo de array
             val newCharseqs2 = Array<String?>(charseqs.size + 2) { i ->
                 if (i < charseqs.size) charseqs[i]
                 else if (i == charseqs.size) Notification.EXTRA_SELF_DISPLAY_NAME
@@ -81,7 +78,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
             Utils.debugLog(charseqs.contentToString() + "")
         }
 
-        // Substituído forEach por loop tradicional
         for (key in charseqs) {
             if (notification.extras.containsKey(key) && notification.extras.getCharSequence(key) != null) {
                 Utils.debugLog(
@@ -93,9 +89,7 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
             }
         }
 
-        //        Then Charsequence Arrays
         val charSeqArr = arrayOf(Notification.EXTRA_TEXT_LINES, Notification.EXTRA_PEOPLE)
-        // Substituído forEach por loop tradicional
         for (key in charSeqArr) {
             if (notification.extras.containsKey(key) && notification.extras.getCharSequenceArray(key) != null) {
                 allNotificationText.addAll(
@@ -109,7 +103,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-//        Then Person style
             if (notification.extras.containsKey(Notification.EXTRA_MESSAGING_PERSON)) {
                 val person =
                     notification.extras.getParcelable<Person?>(Notification.EXTRA_MESSAGING_PERSON)
@@ -121,7 +114,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
                 val people =
                     notification.extras.getParcelableArrayList<Person?>(Notification.EXTRA_PEOPLE_LIST)
                 if (people != null) {
-                    // Substituído forEach por loop tradicional
                     for (person in people) {
                         allNotificationText.add(person.getName())
                     }
@@ -129,7 +121,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
             }
         }
 
-        //        Then MessagingStyle Arrays
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             var messageArr = arrayOf(Notification.EXTRA_MESSAGES)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -138,7 +129,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
                     Notification.EXTRA_HISTORIC_MESSAGES
                 )
             }
-            // Substituído forEach por loop tradicional
             for (key in messageArr) {
                 if (notification.extras.containsKey(key) && notification.extras.getParcelableArray(
                         key
@@ -150,7 +140,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
                             Notification.MessagingStyle.Message.getMessagesFromBundleArray(
                                 histMessages
                             )
-                        // Substituído forEach por loop tradicional
                         for (message in messages) {
                             if (message == null) {
                                 continue
@@ -166,8 +155,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
                 }
             }
         }
-        //        Not translating Message.setData(), and Person.getURI() as requires URI retrieval
-//        Not translating Actions as that will mean translating RemoteInputs which will mean
         return allNotificationText.toTypedArray<CharSequence?>()
     }
 
@@ -182,7 +169,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
                 .getId() + " and it has extras " + notification.extras
         )
 
-        //        First simple Charsequences
         var charseqs = arrayOf<String?>(
             Notification.EXTRA_TITLE,
             Notification.EXTRA_TITLE_BIG,
@@ -192,14 +178,12 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
             Notification.EXTRA_SUMMARY_TEXT
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            // Fix para o erro de tipo de array
             val newCharseqs = Array<String?>(charseqs.size + 1) { i ->
                 if (i < charseqs.size) charseqs[i] else Notification.EXTRA_BIG_TEXT
             }
             charseqs = newCharseqs
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            // Fix para o erro de tipo de array
             val newCharseqs2 = Array<String?>(charseqs.size + 2) { i ->
                 if (i < charseqs.size) charseqs[i]
                 else if (i == charseqs.size) Notification.EXTRA_SELF_DISPLAY_NAME
@@ -208,7 +192,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
             charseqs = newCharseqs2
         }
 
-        // Substituído forEach por loop tradicional
         for (key in charseqs) {
             if (notification.extras.containsKey(key) && notification.extras.getCharSequence(key) != null) {
                 if (notification.extras.getCharSequence(key).toString() == originalString) {
@@ -217,9 +200,7 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
             }
         }
 
-        //        Then Charsequence Arrays
         val charSeqArr = arrayOf(Notification.EXTRA_TEXT_LINES, Notification.EXTRA_PEOPLE)
-        // Substituído forEach por loop tradicional
         for (key in charSeqArr) {
             if (notification.extras.containsKey(key) && notification.extras.getCharSequenceArray(key) != null) {
                 val textList = notification.extras.getCharSequenceArray(key)
@@ -227,7 +208,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
                     continue
                 }
                 val newTextList = ArrayList<CharSequence?>()
-                // Substituído forEach por loop tradicional
                 for (charSequence in textList) {
                     if (charSequence.toString() == originalString) {
                         newTextList.add(translatedString)
@@ -243,7 +223,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            //        Then Person style
             if (notification.extras.containsKey(Notification.EXTRA_MESSAGING_PERSON)) {
                 val person =
                     notification.extras.getParcelable<Person?>(Notification.EXTRA_MESSAGING_PERSON)
@@ -262,7 +241,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
                     notification.extras.getParcelableArrayList<Person?>(Notification.EXTRA_PEOPLE_LIST)
                 val newPeople = ArrayList<Person?>()
                 if (people != null) {
-                    // Substituído forEach por loop tradicional
                     for (person in people) {
                         if (person.getName() === originalString) {
                             val newPerson = person.toBuilder().setName(translatedString).build()
@@ -279,7 +257,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
             }
         }
 
-        //        Then MessagingStyle Arrays
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             var messageArr = arrayOf(Notification.EXTRA_MESSAGES)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -288,7 +265,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
                     Notification.EXTRA_HISTORIC_MESSAGES
                 )
             }
-            // Substituído forEach por loop tradicional
             for (key in messageArr) {
                 if (notification.extras.containsKey(key) && notification.extras.getParcelableArray(
                         key
@@ -301,12 +277,36 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
                 }
             }
         }
-        //        Not translating Message.setData(), and Person.getURI() as requires URI retrieval
-//        Not translating Actions as that will mean translating RemoteInputs which will mean
     }
 
     @Throws(Throwable::class)
     override fun replaceHookedMethod(methodHookParam: MethodHookParam): Any? {
+        // Verificar se o AllTrans está habilitado antes de processar
+        val context = try {
+            // Tentar obter contexto do NotificationManager
+            val notificationManagerInstance = methodHookParam.thisObject
+            val contextField = notificationManagerInstance.javaClass.getDeclaredField("mContext")
+            contextField.isAccessible = true
+            contextField.get(notificationManagerInstance) as? android.content.Context
+        } catch (e: Exception) {
+            // Se não conseguir obter contexto, usar o contexto global
+            Alltrans.context
+        }
+
+        val packageName = context?.packageName
+        if (!PreferenceManager.isEnabledForPackage(context, packageName)) {
+            Utils.debugLog("NotificationHookHandler: AllTrans DESABILITADO para este app ($packageName). Chamando método original.")
+            // Chamar o método original sem modificação
+            return try {
+                val method = methodHookParam.method as Method
+                method.isAccessible = true
+                XposedBridge.invokeOriginalMethod(method, methodHookParam.thisObject, methodHookParam.args)
+            } catch (e: Exception) {
+                Log.e("AllTrans", "Error calling original notification method", e)
+                null
+            }
+        }
+
         Utils.debugLog("Notification : in notificationhook ")
         val notification = methodHookParam.args[methodHookParam.args.size - 1] as Notification
         val userDataOut = NotificationHookUserData(methodHookParam, "")
@@ -314,7 +314,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
 
         val allNotificationTexts = getAllText(notification)
 
-        // Usando índice manual para evitar problemas com continue em lambdas
         var textIndex = 0
         while (textIndex < allNotificationTexts.size) {
             val text = allNotificationTexts[textIndex]
@@ -329,17 +328,14 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
                     .getId() + " Recognized non-english string: " + stringArgs
             )
 
-            // Criar uma chave composta para esta tradução específica
             val compositeKey = stringArgs.hashCode()
 
-            // Verificar se esta tradução já está pendente
             var shouldSkip = false
             synchronized(Alltrans.pendingTextViewTranslations) {
                 if (Alltrans.pendingTextViewTranslations.contains(compositeKey)) {
                     Utils.debugLog("NotificationHookHandler: Skipping translation for [$stringArgs], already pending with key ($compositeKey)")
                     shouldSkip = true
                 } else {
-                    // Adicionar à lista de pendentes antes de iniciar a tradução
                     Alltrans.pendingTextViewTranslations.add(compositeKey)
                     Utils.debugLog("NotificationHookHandler: Added composite key ($compositeKey) to pending set.")
                 }
@@ -355,11 +351,8 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
             var cacheHit = false
             var translatedStringFromCache: String? = null
             try {
-                // Acessa o LruCache. O getter personalizado em Alltrans.kt garante que não seja nulo.
                 val cacheRef = Alltrans.cache
                 if (PreferenceList.Caching && cacheRef != null) {
-                    // LruCache.get(key) retorna null se a chave não for encontrada.
-                    // Isso substitui a necessidade de containsKey e depois get.
                     translatedStringFromCache = cacheRef.get(stringArgs)
                     if (translatedStringFromCache != null) {
                         Utils.debugLog(
@@ -370,16 +363,12 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
                     }
                 }
             } finally {
-                // Garante que o semáforo seja liberado apenas se foi adquirido e ainda não foi liberado.
-                // A verificação de availablePermits() == 0 pode não ser a mais robusta se o semáforo
-                // pudesse ser liberado em outro lugar dentro do try, mas para este padrão simples é ok.
                 if (Alltrans.cacheAccess.availablePermits() == 0) {
                     Alltrans.cacheAccess.release()
                 }
             }
 
             if (cacheHit) {
-                // Remover da lista de pendentes pois encontrou no cache
                 synchronized(Alltrans.pendingTextViewTranslations) {
                     Alltrans.pendingTextViewTranslations.remove(compositeKey)
                     Utils.debugLog("NotificationHookHandler: Removed composite key ($compositeKey) from pending set after cache hit.")
@@ -393,7 +382,7 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
             getTranslate.originalCallable = this
             getTranslate.userData = userData
             getTranslate.canCallOriginal = true
-            getTranslate.pendingCompositeKey = compositeKey  // Fornecer a chave composta para o callback
+            getTranslate.pendingCompositeKey = compositeKey
 
             val getTranslateToken = GetTranslateToken()
             getTranslateToken.getTranslate = getTranslate
@@ -411,7 +400,6 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
             if (bundles == null) {
                 return null
             }
-            // Substituído forEach por loop tradicional com índices
             for (i in bundles.indices) {
                 val bundle = bundles[i] as Bundle?
                 if (bundle == null) {

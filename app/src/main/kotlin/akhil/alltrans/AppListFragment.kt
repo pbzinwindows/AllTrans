@@ -243,19 +243,22 @@ class AppListFragment : Fragment(), SearchableFragment {
                     Utils.debugLog("CheckBox clicked! $pkgName")
 
                     val globalEditor = settings?.edit()
-                    // Each app has its own preference file for local settings
                     val localSettings = requireActivity().getSharedPreferences(pkgName, Context.MODE_PRIVATE)
                     val localEditor = localSettings?.edit()
 
                     if (checkBox.isChecked) {
                         globalEditor?.putBoolean(pkgName, true)
-                        localEditor?.putBoolean("LocalEnabled", true) // Assuming "LocalEnabled" is a key in local prefs
+                        localEditor?.putBoolean("LocalEnabled", true)
                     } else {
                         globalEditor?.remove(pkgName)
                         localEditor?.putBoolean("LocalEnabled", false)
                     }
                     globalEditor?.apply()
                     localEditor?.apply()
+
+                    // Limpar cache de preferências para forçar recarregamento
+                    PreferenceManager.clearCache(pkgName)
+                    Utils.debugLog("Cleared preference cache for $pkgName due to setting change")
                 }
             } else {
                 // Clear views if currentAppInfo is null (e.g. during filtering)

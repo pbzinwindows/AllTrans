@@ -403,6 +403,14 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
             return
         }
 
+        // Verificar se o AllTrans está habilitado para este app
+        val context = this.webViewInstance.context
+        val packageName = context?.packageName
+        if (!PreferenceManager.isEnabledForPackage(context, packageName)) {
+            Utils.debugLog("VirtWebViewOnLoad: AllTrans DESABILITADO para este app ($packageName). Pulando tradução para [$stringArgs]")
+            return
+        }
+
         if (!SetTextHookHandler.Companion.isNotWhiteSpace(stringArgs)) {
             return
         }

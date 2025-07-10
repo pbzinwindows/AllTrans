@@ -239,19 +239,40 @@ class DrawTextHookHandler : XC_MethodReplacement(), OriginalCallable {
     }
 
     private fun processDrawTextHook(methodHookParam: XC_MethodHook.MethodHookParam): Any? {
+        // Verificar se o AllTrans está habilitado para este app
+        val canvas = methodHookParam.thisObject as? Canvas
+        val context = try {
+            // Tentar obter contexto do Canvas
+            canvas?.let {
+                val viewField = it.javaClass.getDeclaredField("mView")
+                viewField.isAccessible = true
+                val view = viewField.get(it) as? android.view.View
+                view?.context
+            }
+        } catch (e: Exception) {
+            // Se não conseguir obter contexto do Canvas, usar o contexto global
+            Alltrans.context
+        }
+
+        val packageName = context?.packageName
+        if (!PreferenceManager.isEnabledForPackage(context, packageName)) {
+            Utils.debugLog("$TAG: AllTrans DESABILITADO para este app ($packageName). Chamando método original sem tradução.")
+            callOriginalMethod(null, methodHookParam)
+            return null
+        }
+
         if (methodHookParam.args.isEmpty() || methodHookParam.args[0] == null) {
-            // Não há texto para traduzir, invocar original sem modificação de texto
             callOriginalMethod(null, methodHookParam)
             return null
         }
 
         val extractedText = extractTextFromArgs(methodHookParam.args) ?: run {
-            callOriginalMethod(null, methodHookParam) // Texto não pôde ser extraído
+            callOriginalMethod(null, methodHookParam)
             return null
         }
 
         if (!SetTextHookHandler.isNotWhiteSpace(extractedText)) {
-            callOriginalMethod(extractedText, methodHookParam) // Texto é apenas espaço em branco
+            callOriginalMethod(extractedText, methodHookParam)
             return null
         }
 
