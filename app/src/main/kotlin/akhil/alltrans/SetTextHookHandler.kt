@@ -17,57 +17,138 @@ class SetTextHookHandler : XC_MethodHook() {
 
     companion object {
         private const val TAG = "AllTrans:SetTextHook"
-        private val NUMERIC_PATTERN: Pattern = Pattern.compile("^[+-]?\\d+([.,]\\d+)?$")
-        private val URL_LIKE_PATTERN: Pattern = Pattern.compile("^(https?://\\S+|[^\\s:/]+\\.[^\\s:/]+(/[\\S]*)?)$")
-        private val ACRONYM_LIKE_PATTERN: Pattern = Pattern.compile("^[A-Z0-9_\\-.:]{1,10}$")
+
+        // Padrões aprimorados
+        private val NUMERIC_PATTERN: Pattern = Pattern.compile("^[+-]?\\d+([.,]\\d+)?([%°€$£¥₹]|\\s*(MB|GB|TB|KB|Hz|MHz|GHz|dB|px|dp|sp))?$")
+        private val URL_LIKE_PATTERN: Pattern = Pattern.compile("^(https?://\\S+|ftp://\\S+|\\S+\\.\\S+(/\\S*)?|www\\.\\S+)$")
+        private val ACRONYM_LIKE_PATTERN: Pattern = Pattern.compile("^[A-Z0-9_\\-.:]{2,8}$")
         private val TIMESTAMP_PATTERN: Pattern = Pattern.compile("^\\d{1,2}:\\d{2}(:\\d{2})?(\\s?(AM|PM))?$", Pattern.CASE_INSENSITIVE)
+
+        // Novos padrões importantes
+        private val DATE_PATTERN: Pattern = Pattern.compile("^\\d{1,4}[/-]\\d{1,2}[/-]\\d{1,4}$")
+        private val VERSION_PATTERN: Pattern = Pattern.compile("^v?\\d+(\\.\\d+){1,3}(\\s*(beta|alpha|rc|dev)\\d*)?$", Pattern.CASE_INSENSITIVE)
+        private val EMAIL_PATTERN: Pattern = Pattern.compile("^[\\w.-]+@[\\w.-]+\\.[a-zA-Z]{2,}$")
+        private val PHONE_PATTERN: Pattern = Pattern.compile("^[+]?[\\d\\s\\-()]{7,20}$")
+        private val FILE_PATH_PATTERN: Pattern = Pattern.compile("^(/[^/\\s]*)+/?$|^[A-Za-z]:\\\\.*$")
+        private val HEX_COLOR_PATTERN: Pattern = Pattern.compile("^#[0-9A-Fa-f]{3,8}$")
+        private val COORDINATE_PATTERN: Pattern = Pattern.compile("^[-+]?\\d+\\.\\d+,\\s*[-+]?\\d+\\.\\d+$")
+        private val CODE_IDENTIFIER_PATTERN: Pattern = Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]*$")
+        private val PROGRAMMING_SYMBOL_PATTERN: Pattern = Pattern.compile("^[{}\\[\\]()<>+=*/%&|^~!@#$]+$")
+        private val CURRENCY_PATTERN: Pattern = Pattern.compile("^[€$£¥₹₽¢₩₪]\\s*\\d+([.,]\\d+)?$")
+        private val HTML_TAG_PATTERN: Pattern = Pattern.compile("^<[^>]+>$")
+        private val CSS_SELECTOR_PATTERN: Pattern = Pattern.compile("^[.#]?[a-zA-Z][a-zA-Z0-9\\-_]*$")
+
+        // Padrões para contextos específicos de Android
+        private val ANDROID_RESOURCE_PATTERN: Pattern = Pattern.compile("^@[a-zA-Z]+/[a-zA-Z0-9_]+$")
+        private val PACKAGE_NAME_PATTERN: Pattern = Pattern.compile("^[a-zA-Z][a-zA-Z0-9_]*(\\.([a-zA-Z][a-zA-Z0-9_]*))+$")
+        private val CLASS_NAME_PATTERN: Pattern = Pattern.compile("^[A-Z][a-zA-Z0-9]*$")
+
         private val WHITESPACE_PATTERN: Pattern = Pattern.compile("^\\s*$")
-        private const val MIN_LENGTH_FOR_TRANSLATION = 1
+        private const val MIN_LENGTH_FOR_TRANSLATION = 2
 
         fun isNotWhiteSpace(text: String?): Boolean {
             return !text.isNullOrEmpty() && !WHITESPACE_PATTERN.matcher(text).matches()
         }
 
         fun shouldSkipTranslation(text: String): Boolean {
-            if (text.length < MIN_LENGTH_FOR_TRANSLATION && text.length > 0) {
-                Utils.debugLog("$TAG: Skipping (too short, mas MIN_LENGTH é 1): [$text]")
-            }
-
-            if (text.length == 1 && !Character.isLetterOrDigit(text[0])) {
-                // Utils.debugLog("$TAG: Skipping (single non-alphanumeric char): [$text]")
-                // return true; // Descomente se quiser pular símbolos únicos
-            }
-
-            if (NUMERIC_PATTERN.matcher(text).matches()) {
-                Utils.debugLog("$TAG: Skipping (numeric): [$text]")
+            // Verifica se é muito curto
+            if (text.length < MIN_LENGTH_FOR_TRANSLATION) {
+                Utils.debugLog("$TAG: Skipping (too short): [$text]")
                 return true
             }
-            if (URL_LIKE_PATTERN.matcher(text).matches() && !text.contains(" ")) {
-                Utils.debugLog("$TAG: Skipping (URL-like): [$text]")
-                return true
+
+            // Lista de padrões para verificar
+            val patterns = mapOf(
+                NUMERIC_PATTERN to "numeric",
+                URL_LIKE_PATTERN to "URL-like",
+                EMAIL_PATTERN to "email",
+                PHONE_PATTERN to "phone",
+                DATE_PATTERN to "date",
+                VERSION_PATTERN to "version",
+                FILE_PATH_PATTERN to "file path",
+                HEX_COLOR_PATTERN to "hex color",
+                COORDINATE_PATTERN to "coordinate",
+                PROGRAMMING_SYMBOL_PATTERN to "programming symbol",
+                CURRENCY_PATTERN to "currency",
+                HTML_TAG_PATTERN to "HTML tag",
+                CSS_SELECTOR_PATTERN to "CSS selector",
+                ANDROID_RESOURCE_PATTERN to "Android resource",
+                PACKAGE_NAME_PATTERN to "package name",
+                TIMESTAMP_PATTERN to "timestamp"
+            )
+
+            // Verifica cada padrão
+            for ((pattern, name) in patterns) {
+                if (pattern.matcher(text).matches()) {
+                    Utils.debugLog("$TAG: Skipping ($name): [$text]")
+                    return true
+                }
             }
+
+            // Verifica acrônimos com lógica mais específica
             if (ACRONYM_LIKE_PATTERN.matcher(text).matches()) {
-                var hasLetter = false
-                for (char_acronym in text) {
-                    if (Character.isLetter(char_acronym)) {
-                        hasLetter = true
-                        break
-                    }
-                }
-                if (!hasLetter && text.length <=3) {
-                    Utils.debugLog("$TAG: Skipping (acronym-like, no letters, short): [$text]")
-                    return true
-                } else if (hasLetter) {
-                    Utils.debugLog("$TAG: Skipping (acronym-like with letters): [$text]")
+                // Só pula se for realmente um acrônimo (tem letras maiúsculas)
+                val hasUpperCase = text.any { it.isUpperCase() }
+                if (hasUpperCase) {
+                    Utils.debugLog("$TAG: Skipping (acronym): [$text]")
                     return true
                 }
             }
-            if (TIMESTAMP_PATTERN.matcher(text).matches()) {
-                Utils.debugLog("$TAG: Skipping (timestamp): [$text]")
+
+            // Verifica se é código/identificador
+            if (CODE_IDENTIFIER_PATTERN.matcher(text).matches() && text.length <= 15) {
+                // Se contém apenas snake_case ou camelCase, provavelmente é código
+                val hasUnderscores = text.contains('_')
+                val hasCamelCase = text.any { it.isUpperCase() } && text.any { it.isLowerCase() }
+                if (hasUnderscores || hasCamelCase) {
+                    Utils.debugLog("$TAG: Skipping (code identifier): [$text]")
+                    return true
+                }
+            }
+
+            // Verifica se é nome de classe Android
+            if (CLASS_NAME_PATTERN.matcher(text).matches() && text.length <= 20) {
+                Utils.debugLog("$TAG: Skipping (class name): [$text]")
                 return true
             }
+
             return false
         }
+    }
+
+    private fun getTextViewContext(textView: TextView): String? {
+        return try {
+            // Tenta obter ID do recurso para contexto
+            val resourceId = textView.id
+            if (resourceId != View.NO_ID) {
+                val context = textView.context
+                val resourceName = context.resources.getResourceEntryName(resourceId)
+                resourceName.lowercase()
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun shouldSkipBasedOnContext(text: String, context: String?): Boolean {
+        context?.let { ctx ->
+            // Contextos que geralmente não devem ser traduzidos
+            val skipContexts = listOf(
+                "username", "email", "password", "url", "api", "key", "token",
+                "id", "uuid", "hash", "version", "build", "debug", "log",
+                "package", "class", "method", "function", "variable"
+            )
+
+            for (skipContext in skipContexts) {
+                if (ctx.contains(skipContext)) {
+                    Utils.debugLog("$TAG: Skipping based on context [$ctx]: [$text]")
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     private fun modifyArgument(param: XC_MethodHook.MethodHookParam, newText: CharSequence?) {
@@ -107,7 +188,6 @@ class SetTextHookHandler : XC_MethodHook() {
             return null
         }
 
-        var cachedValue: String? = null
         try {
             Alltrans.cacheAccess.acquireUninterruptibly()
             val currentCache = Alltrans.cache
@@ -115,7 +195,19 @@ class SetTextHookHandler : XC_MethodHook() {
                 Utils.debugLog("$TAG ($compositeKey): Objeto Cache é NULO (inesperado, já que PreferenceList.Caching é true). Não foi possível obter tradução para: [$text]")
                 return null
             }
-            cachedValue = currentCache.get(text)
+            val cachedValue = currentCache.get(text)
+
+            if (cachedValue != null) {
+                if (cachedValue != text) {
+                    Utils.debugLog("$TAG ($compositeKey): Tradução encontrada no cache para: [$text] -> [$cachedValue]")
+                    return cachedValue
+                } else {
+                    Utils.debugLog("$TAG ($compositeKey): Valor no cache é IGUAL ao original para: [$text]. Considerado como não traduzido/sem hit útil.")
+                    return null
+                }
+            }
+            Utils.debugLog("$TAG ($compositeKey): Não encontrado no cache: [$text]")
+            return null
         } catch (e: Exception) {
             Utils.debugLog("$TAG ($compositeKey): Erro ao acessar cache para: [$text]: ${Log.getStackTraceString(e)}")
             return null
@@ -124,21 +216,9 @@ class SetTextHookHandler : XC_MethodHook() {
                 Alltrans.cacheAccess.release()
             }
         }
-
-        if (cachedValue != null) {
-            if (cachedValue != text) {
-                Utils.debugLog("$TAG ($compositeKey): Tradução encontrada no cache para: [$text] -> [$cachedValue]")
-                return cachedValue
-            } else {
-                Utils.debugLog("$TAG ($compositeKey): Valor no cache é IGUAL ao original para: [$text]. Considerado como não traduzido/sem hit útil.")
-                return null
-            }
-        }
-        Utils.debugLog("$TAG ($compositeKey): Não encontrado no cache: [$text]")
-        return null
     }
 
-    private fun removePendingTranslation(compositeKey: Int, reason: String) {
+    private fun removePendingTranslation(compositeKey: Int, reason: String = "Activity destruída/finalizando") {
         synchronized(Alltrans.pendingTextViewTranslations) {
             if (Alltrans.pendingTextViewTranslations.remove(compositeKey)) {
                 Utils.debugLog("$TAG: Chave composta ($compositeKey) removida das pendências: $reason")
@@ -162,7 +242,7 @@ class SetTextHookHandler : XC_MethodHook() {
         val context = textView.context
         if (context is Activity && (context.isFinishing || context.isDestroyed)) {
             Utils.debugLog("$TAG ($compositeKey): Activity destruída ou finalizando para TextView ${textView.hashCode()}, cancelando requisição para: [$text]")
-            removePendingTranslation(compositeKey, "Activity destruída/finalizando")
+            removePendingTranslation(compositeKey)
             return
         }
 
@@ -250,6 +330,12 @@ class SetTextHookHandler : XC_MethodHook() {
         }
 
         if (shouldSkipTranslation(originalText)) {
+            return
+        }
+
+        // Verifica contexto do TextView
+        val textViewContext = getTextViewContext(textView)
+        if (shouldSkipBasedOnContext(originalText, textViewContext)) {
             return
         }
 

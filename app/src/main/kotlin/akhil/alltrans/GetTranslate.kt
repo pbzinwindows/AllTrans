@@ -227,13 +227,35 @@ class GetTranslate : Callback {
         }
     }
 
+    private fun shouldCacheTranslation(original: String, translated: String): Boolean {
+        // Não cachear se a tradução é idêntica ao original
+        if (original == translated) return false
+
+        // Não cachear textos muito curtos
+        if (original.length < 3) return false
+
+        // Não cachear se contém apenas números/símbolos
+        if (SetTextHookHandler.shouldSkipTranslation(original)) return false
+
+        // Não cachear traduções suspeitas (muito diferentes em tamanho)
+        val lengthRatio = translated.length.toFloat() / original.length.toFloat()
+        if (lengthRatio > 5.0f || lengthRatio < 0.2f) {
+            Utils.debugLog("$TAG: Suspicious translation length ratio: $lengthRatio for [$original] -> [$translated]")
+            return false
+        }
+
+        return true
+    }
+
     private fun cacheTranslation(original: String?, translated: String?) {
         if (original == null || translated == null || !PreferenceList.Caching) {
             if (!PreferenceList.Caching) Utils.debugLog("$TAG: Skipping cache update for [$original] -> [$translated] because Caching is disabled.")
             return
         }
-        if (translated == original) {
-            Utils.debugLog("$TAG: Skipping cache update for identical translation: [$original]")
+
+        // Usar a nova lógica de validação de cache
+        if (!shouldCacheTranslation(original, translated)) {
+            Utils.debugLog("$TAG: Skipping cache update for [$original] -> [$translated] - validation failed")
             return
         }
 

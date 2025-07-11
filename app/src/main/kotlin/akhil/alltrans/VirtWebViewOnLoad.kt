@@ -33,6 +33,43 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
         Utils.debugLog("VirtWebViewOnLoad: Instance created for WebView: " + (if (webViewInstance != null) webViewInstance.hashCode() else "null"))
     }
 
+    // Filtros específicos para conteúdo web
+    private fun isWebContentToSkip(text: String): Boolean {
+        // CSS classes e IDs
+        if (text.startsWith(".") || text.startsWith("#")) return true
+
+        // Atributos HTML comuns
+        val htmlAttributes = listOf("onclick", "onload", "href", "src", "alt", "title", "class", "id", "style", "data-")
+        if (htmlAttributes.any { text.startsWith("$it=") }) return true
+
+        // JavaScript keywords
+        val jsKeywords = listOf("function", "var", "let", "const", "return", "if", "else", "for", "while", "document", "window", "console")
+        if (jsKeywords.contains(text.lowercase())) return true
+
+        // Meta tags content
+        if (text.contains("charset") || text.contains("viewport")) return true
+
+        // URLs e caminhos
+        if (text.startsWith("http") || text.startsWith("ftp") || text.startsWith("www.") || text.startsWith("/")) return true
+
+        // Código JavaScript inline
+        if (text.contains("function(") || text.contains("return ") || text.contains("console.") || text.contains("document.")) return true
+
+        // JSON-like content
+        if ((text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]"))) return true
+
+        // CSS units e cores
+        if (text.matches(Regex("^#[0-9A-Fa-f]{3,8}$")) || text.matches(Regex("^\\d+\\.?\\d*(px|em|rem|vh|vw|%|pt)$"))) return true
+
+        // Extensões de arquivo
+        if (text.matches(Regex(".*\\.(js|css|html|htm|xml|json|svg|png|jpg|jpeg|gif|webp|ico|pdf)$", RegexOption.IGNORE_CASE))) return true
+
+        // Base64 ou hashes
+        if (text.matches(Regex("^[A-Za-z0-9+/]{20,}={0,2}$")) || text.matches(Regex("^[a-f0-9]{8,64}$"))) return true
+
+        return false
+    }
+
     override fun callOriginalMethod(translatedString: CharSequence?, userData: Any?) {
         if (userData !is WebHookUserData2) {
             Utils.debugLog("VirtWebViewOnLoad: Error in callOriginalMethod - userData is not WebHookUserData2")
@@ -174,7 +211,6 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
         return "'" + escaped + "'"
     }
 
-
     // --- Nova função auxiliar para marcar nós como traduzidos ---
     private fun markNodeAsTranslated(webView: WebView?, originalText: String?) {
         if (webView == null || originalText == null) return
@@ -255,7 +291,6 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
         myEvaluateJavaScript(webView, script)
     }
 
-
     // --- Fim da nova função ---
     @SuppressLint("JavascriptInterface", "AddJavascriptInterface")
     @Throws(Throwable::class)
@@ -266,7 +301,7 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
         val scriptFrames = "console.log(\"AllTrans: Frames is \"+window.frames.length)"
         myEvaluateJavaScript(webView, scriptFrames)
 
-        // Script JS inicial (com filtros e verificação de marca)
+        // Script JS inicial (com filtros melhorados e verificação de marca)
         val script = (""
                 + "console.log('AllTrans: Initializing JS...');\n"
                 + "\n"
@@ -282,6 +317,13 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
                 + "var AllTransNumericRegex = /^[+-]?\\d+(\\.\\d+)?$/;\n"
                 + "var AllTransUrlLikeRegex = /^(http|https):\\/\\/.*|[^\\s]+\\.[^\\s]+$/;\n"
                 + "var AllTransAcronymRegex = /^[A-Z0-9_\\-:]+$/;\n"
+                + "var AllTransWebUrlRegex = /^(https?:\\/\\/|ftp:\\/\\/|www\\.|[^\\s:\\/]+\\.[^\\s:\\/]+)/i;\n"
+                + "var AllTransCssRegex = /^[.#]?[a-zA-Z][a-zA-Z0-9\\-_]*$/;\n"
+                + "var AllTransJsKeywordRegex = /^(function|var|let|const|return|if|else|for|while|document|window|console)$/i;\n"
+                + "var AllTransColorRegex = /^#[0-9A-Fa-f]{3,8}$|^rgba?\\(/i;\n"
+                + "var AllTransCssUnitRegex = /^\\d+\\.?\\d*(px|em|rem|vh|vw|%|pt)$/i;\n"
+                + "var AllTransFileExtRegex = /\\.(js|css|html|htm|xml|json|svg|png|jpg|jpeg|gif|webp|ico|pdf)$/i;\n"
+                + "var AllTransBase64Regex = /^[A-Za-z0-9+\\/]{20,}={0,2}$/;\n"
                 + "\n"
                 + "function allTransGetAllTextNodes(tempDocument) {\n"
                 + "    var result = [];\n"
@@ -331,6 +373,18 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
                 + "            if (AllTransNumericRegex.test(trimmedText)) { continue; }\n"
                 + "            if (trimmedText.length > 5 && AllTransUrlLikeRegex.test(trimmedText) && trimmedText.indexOf(' ') === -1) { continue; }\n"
                 + "            if (trimmedText.length < 6 && AllTransAcronymRegex.test(trimmedText)) { continue; }\n"
+                + "            // Filtros específicos para web\n"
+                + "            if (AllTransWebUrlRegex.test(trimmedText)) { continue; }\n"
+                + "            if (AllTransCssRegex.test(trimmedText)) { continue; }\n"
+                + "            if (AllTransJsKeywordRegex.test(trimmedText)) { continue; }\n"
+                + "            if (AllTransColorRegex.test(trimmedText)) { continue; }\n"
+                + "            if (AllTransCssUnitRegex.test(trimmedText)) { continue; }\n"
+                + "            if (AllTransFileExtRegex.test(trimmedText)) { continue; }\n"
+                + "            if (AllTransBase64Regex.test(trimmedText)) { continue; }\n"
+                + "            if (trimmedText.indexOf('charset') !== -1 || trimmedText.indexOf('viewport') !== -1) { continue; }\n"
+                + "            if (trimmedText.indexOf('function(') !== -1 || trimmedText.indexOf('console.') !== -1) { continue; }\n"
+                + "            if ((trimmedText.charAt(0) === '{' && trimmedText.charAt(trimmedText.length-1) === '}') ||\n"
+                + "                (trimmedText.charAt(0) === '[' && trimmedText.charAt(trimmedText.length-1) === ']')) { continue; }\n"
                 + "\n"
                 + "            textsToSend[text] = true;\n"
                 + "        }\n"
@@ -412,6 +466,12 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
         }
 
         if (!SetTextHookHandler.Companion.isNotWhiteSpace(stringArgs)) {
+            return
+        }
+
+        // Aplicar filtros específicos para WebView
+        if (isWebContentToSkip(stringArgs)) {
+            Utils.debugLog("VirtWebViewOnLoad: Skipping web content: [$stringArgs]")
             return
         }
 
@@ -519,7 +579,6 @@ class VirtWebViewOnLoad(private val webViewInstance: WebView?) : OriginalCallabl
         })
     }
 } // Fim da classe VirtWebViewOnLoad
-
 
 // Classe auxiliar
 internal class WebHookUserData2(val webView: WebView?, val stringArgs: String?)
