@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <SwitchPreference
+        app:iconSpaceReserved="false"
+        app:defaultValue="false"
+        app:key="LocalEnabled"
+        app:summary="@string/local_on_off_summary"
+        app:summaryOff="@string/local_on_off_summary_off"
+        app:summaryOn="@string/local_on_off_summary_on"
+        app:title="@string/local_on_off" />
+
+    <SwitchPreference
+        app:iconSpaceReserved="false"
+        app:defaultValue="false"
+        app:key="OverRide"
+        app:summaryOff="@string/overRide_global_summary_off"
+        app:summaryOn="@string/overRide_global_summary_on"
+        app:title="@string/overRide_global" />
+
+    <Preference
+        app:iconSpaceReserved="false"
+        app:key="ClearCache"
+        app:persistent="false"
+        app:summary="@string/clear_cache_summary"
+        app:title="@string/clear_cache"
+        android:layout="@layout/preference_material_item" />
+
+    <PreferenceCategory
+        app:title="@string/pref_cat_translate_settings"
+        app:iconSpaceReserved="false"
+        app:allowDividerAbove="true">
+
+        <ListPreference
+            app:iconSpaceReserved="false"
+            app:defaultValue="g"
+            app:entries="@array/translator_provider_entries"
+            app:entryValues="@array/translator_provider_values"
+            app:key="TranslatorProvider"
+            app:summary="@string/translator_provider_summary"
+            app:title="@string/translator_provider"
+            app:useSimpleSummaryProvider="true"
+            android:layout="@layout/preference_material_item" />
+
+        <ListPreference
+            app:iconSpaceReserved="false"
+            app:key="app_ms_batch_translate_mode"
+            app:title="Microsoft Batch Translation Mode"
+            app:summary="%s"
+            app:entries="@array/ms_batch_mode_entries"
+            app:entryValues="@array/ms_batch_mode_entry_values"
+            app:defaultValue="global"
+            app:useSimpleSummaryProvider="true"
+            android:layout="@layout/preference_material_item"
+            app:dependency="OverRide" />
+
+        <SwitchPreference
+            app:iconSpaceReserved="false"
+            app:defaultValue="false"
+            app:key="UseCustomSubscription"
+            app:summaryOff="@string/use_global_subscription_summary"
+            app:summaryOn="@string/use_custom_subscription_summary"
+            app:title="@string/use_custom_subscription_title" />
+
+        <EditTextPreference
+            app:iconSpaceReserved="false"
+            app:key="CustomSubscriptionKey"
+            app:title="@string/subKey_micro"
+            app:summary="@string/subKey_summary"
+            app:defaultValue=""
+            app:useSimpleSummaryProvider="true"
+            android:layout="@layout/preference_material_item" />
+
+        <EditTextPreference
+            app:iconSpaceReserved="false"
+            app:key="CustomSubscriptionRegion"
+            app:title="@string/subRegion_micro"
+            app:summary="@string/subRegion_summary"
+            app:defaultValue=""
+            app:useSimpleSummaryProvider="true"
+            android:layout="@layout/preference_material_item" />
+
+        <ListPreference
+            app:iconSpaceReserved="false"
+            app:defaultValue="ko"
+            app:entries="@array/languageNames"
+            app:entryValues="@array/languageCodes"
+            app:key="TranslateFromLanguage"
+            app:summary="@string/transFrom_summary"
+            app:title="@string/transFrom"
+            app:useSimpleSummaryProvider="true"
+            android:layout="@layout/preference_material_item" />
+
+        <ListPreference
+            app:iconSpaceReserved="false"
+            app:defaultValue="en"
+            app:entries="@array/languageNames"
+            app:entryValues="@array/languageCodes"
+            app:key="TranslateToLanguage"
+            app:summary="@string/transTo_summary"
+            app:title="@string/transTo"
+            app:useSimpleSummaryProvider="true"
+            android:layout="@layout/preference_material_item" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:title="@string/pref_cat_troubleshooting_info"
+        app:iconSpaceReserved="false"
+        app:allowDividerAbove="true">
+
+        <SwitchPreference
+            app:iconSpaceReserved="false"
+            app:defaultValue="false"
+            app:key="DrawText"
+            app:summaryOff="@string/drawText_summary_off"
+            app:summaryOn="@string/drawText_summary_on"
+            app:title="@string/drawText" />
+
+        <SwitchPreference
+            app:iconSpaceReserved="false"
+            app:defaultValue="false"
+            app:key="Scroll"
+            app:summaryOff="@string/scroll_summary_off"
+            app:summaryOn="@string/scroll_summary_on"
+            app:title="@string/scroll" />
+
+        <EditTextPreference
+            app:iconSpaceReserved="false"
+            app:defaultValue="@integer/default_delay"
+            app:key="Delay"
+            app:summary="@string/delay_summary"
+            app:title="@string/delay"
+            app:useSimpleSummaryProvider="true"
+            android:inputType="number"
+            android:layout="@layout/preference_material_item" />
+
+        <EditTextPreference
+            app:iconSpaceReserved="false"
+            app:defaultValue="@integer/default_delay_webview"
+            app:key="DelayWebView"
+            app:summary="@string/delay_webview_summary"
+            app:title="@string/delay_webview"
+            app:useSimpleSummaryProvider="true"
+            android:inputType="number"
+            android:layout="@layout/preference_material_item" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:title="@string/pref_cat_advanced_settings"
+        app:iconSpaceReserved="false"
+        app:allowDividerAbove="true">
+
+        <SwitchPreference
+            app:iconSpaceReserved="false"
+            app:defaultValue="true"
+            app:key="SetText"
+            app:summaryOff="@string/setText_summary_off"
+            app:summaryOn="@string/setText_summary_on"
+            app:title="@string/setText" />
+
+        <SwitchPreference
+            app:iconSpaceReserved="false"
+            app:defaultValue="true"
+            app:key="SetHint"
+            app:summaryOff="@string/setHint_summary_off"
+            app:summaryOn="@string/setHint_summary_on"
+            app:title="@string/setHint" />
+
+        <SwitchPreference
+            app:iconSpaceReserved="false"
+            app:defaultValue="true"
+            app:key="LoadURL"
+            app:summaryOff="@string/webView_summary_off"
+            app:summaryOn="@string/webView_summary_on"
+            app:title="@string/webView" />
+
+        <SwitchPreference
+            app:iconSpaceReserved="false"
+            app:defaultValue="true"
+            app:key="Cache"
+            app:summaryOff="@string/caching_summary_off"
+            app:summaryOn="@string/caching_summary_on"
+            app:title="@string/caching" />
+
+        <SwitchPreference
+            app:iconSpaceReserved="false"
+            app:defaultValue="true"
+            app:key="Notif"
+            app:summaryOff="@string/notif_summary_off"
+            app:summaryOn="@string/notif_summary_on"
+            app:title="@string/notif" />
+    </PreferenceCategory>
+</PreferenceScreen>

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright 2017 Akhil Kedia
+  ~ This file is part of AllTrans.
+  ~
+  ~ AllTrans is free software: you can redistribute it and/or modify
+  ~ it under the terms of the GNU General Public License as published by
+  ~ the Free Software Foundation, either version 3 of the License, or
+  ~ (at your option) any later version.
+  ~
+  ~ AllTrans is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  ~ GNU General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU General Public License
+  ~ along with AllTrans. If not, see <http://www.gnu.org/licenses/>.
+  ~
+  -->
+
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <application
+        android:forceQueryable="true"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme"
+        tools:ignore="AllowBackup,GoogleAppIndexingWarning"
+        tools:targetApi="r">
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="In-app translations anywhere" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="82" />
+        <meta-data android:name="android.max_aspect"
+            android:value="5.0"/>
+        <meta-data
+            android:name="xposedscope"
+            android:resource="@array/scopes" />
+
+        <activity android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <provider
+            android:authorities="akhil.alltrans.SharedPrefProvider"
+            android:name="akhil.alltrans.SharedPrefProvider"
+            android:exported="true"
+            tools:ignore="ExportedContentProvider" />
+        <provider
+            android:authorities="akhil.alltrans.GtransProvider"
+            android:name="akhil.alltrans.GtransProvider"
+            android:exported="true"
+            tools:ignore="ExportedContentProvider" />
+    </application>
+
+</manifest>

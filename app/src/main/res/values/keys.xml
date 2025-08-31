@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="microsoft_key" translatable="false" tools:keep="@string/microsoft_key">"secret"</string>
+    <string name="yandex_key" translatable="false" tools:keep="@string/yandex_key">"secret"</string>
+    <string name="github_key" translatable="false" tools:keep="@string/github_key">"secret"</string>
+</resources>
