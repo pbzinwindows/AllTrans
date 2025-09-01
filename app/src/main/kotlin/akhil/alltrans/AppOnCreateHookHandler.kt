@@ -4,6 +4,7 @@ import android.app.Application
 // import android.util.Log // Log é usado via XposedBridge ou Utils.debugLog
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
+import java.lang.ref.WeakReference
 
 internal class AppOnCreateHookHandler : XC_MethodHook() {
     override fun afterHookedMethod(methodHookParam: MethodHookParam) {
@@ -13,8 +14,8 @@ internal class AppOnCreateHookHandler : XC_MethodHook() {
             val application = methodHookParam.thisObject as Application
             val appContext = application.applicationContext // Use val
             if (appContext != null) {
-                if (Alltrans.context == null) {
-                    Alltrans.context = appContext
+                if (Alltrans.context?.get() == null) {
+                    Alltrans.context = WeakReference(appContext)
                     Utils.debugLog("AllTrans: Application context set successfully from Application.onCreate for package: " + appContext.packageName)
 
                     Alltrans.initializeTagKeyIfNeeded()

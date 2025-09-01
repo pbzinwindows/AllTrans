@@ -290,7 +290,7 @@ class NotificationHookHandler : XC_MethodReplacement(), OriginalCallable {
             contextField.get(notificationManagerInstance) as? android.content.Context
         } catch (e: Exception) {
             // Se não conseguir obter contexto, usar o contexto global
-            Alltrans.context
+            Alltrans.context?.get()
         }
 
         val packageName = context?.packageName

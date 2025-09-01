@@ -10,6 +10,7 @@ import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONException
 import java.io.IOException
+import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicBoolean
 
 class GetTranslate : Callback {
@@ -256,8 +257,11 @@ class GetTranslate : Callback {
 
         val task = Runnable {
             try {
-                if (callbackInfo.userData is TextView) {
-                    val tv = callbackInfo.userData
+                val weakView = callbackInfo.userData as? WeakReference<*>
+                val view = weakView?.get()
+
+                if (view is TextView) {
+                    val tv = view
                     val originalItemString = callbackInfo.originalString
                     val pendingText = tv.getTag(Alltrans.ALLTRANS_PENDING_TRANSLATION_TAG_KEY) as? String
 
@@ -273,6 +277,8 @@ class GetTranslate : Callback {
                     } else {
                         Utils.debugLog("$TAG: Batch: Skipping TextView update for (${tv.hashCode()}), key ($keyToRemoveFromPending), translated text is same as original or already applied: [$translatedText]")
                     }
+                } else if (view == null) {
+                    Utils.debugLog("$TAG: Batch: TextView was garbage collected. Aborting translation update for key ($keyToRemoveFromPending).")
                 } else if (callbackInfo.canCallOriginal && callbackInfo.originalCallable != null) {
                     Utils.debugLog("$TAG: Batch: Calling originalCallable.callOriginalMethod for key ($keyToRemoveFromPending) with text: [$translatedText]")
                     callbackInfo.originalCallable.callOriginalMethod(translatedText, callbackInfo.userData)
@@ -302,8 +308,11 @@ class GetTranslate : Callback {
 
         val task = Runnable {
             try {
-                if (currentLocalUserData is TextView) {
-                    val tv = currentLocalUserData
+                val weakView = currentLocalUserData as? WeakReference<*>
+                val view = weakView?.get()
+
+                if (view is TextView) {
+                    val tv = view
                     val pendingText = tv.getTag(Alltrans.ALLTRANS_PENDING_TRANSLATION_TAG_KEY) as? String
 
                     if (pendingText != originalString) {
@@ -312,12 +321,14 @@ class GetTranslate : Callback {
                     }
 
                     if (finalString != originalString || !tv.text.toString().equals(finalString)) {
-                        Utils.debugLog("$TAG: Single: Updating TextView (${currentLocalUserData.hashCode()}) with key ($keyToRemove) with translated text: [$finalString]")
-                        currentLocalUserData.setTag(Alltrans.ALLTRANS_TRANSLATION_APPLIED_TAG_KEY, true)
-                        currentLocalUserData.text = finalString
+                        Utils.debugLog("$TAG: Single: Updating TextView (${tv.hashCode()}) with key ($keyToRemove) with translated text: [$finalString]")
+                        tv.setTag(Alltrans.ALLTRANS_TRANSLATION_APPLIED_TAG_KEY, true)
+                        tv.text = finalString
                     } else {
-                        Utils.debugLog("$TAG: Single: Skipping TextView update for (${currentLocalUserData.hashCode()}), key ($keyToRemove), translated text is same or already applied: [$finalString]")
+                        Utils.debugLog("$TAG: Single: Skipping TextView update for (${tv.hashCode()}), key ($keyToRemove), translated text is same or already applied: [$finalString]")
                     }
+                } else if (view == null) {
+                    Utils.debugLog("$TAG: Single: TextView was garbage collected. Aborting translation update for key ($keyToRemove).")
                 } else if (currentLocalCanCallOriginal && currentLocalOriginalCallable != null) {
                     Utils.debugLog("$TAG: Single: Calling originalCallable.callOriginalMethod for key ($keyToRemove) with text: [$finalString]")
                     currentLocalOriginalCallable.callOriginalMethod(finalString, currentLocalUserData)

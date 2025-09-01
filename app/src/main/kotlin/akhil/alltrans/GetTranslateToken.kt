@@ -183,7 +183,7 @@ internal class GetTranslateToken {
     }
 
     private fun queryGoogleProvider(text: String?, fromLang: String?, toLang: String?): String? {
-        val context = Alltrans.context
+        val context = Alltrans.context?.get()
         if (text.isNullOrEmpty() || context == null) {
             if (context == null) {
                 Log.e(TAG, "Static context is null in queryGoogleProvider.")
@@ -335,7 +335,7 @@ internal class GetTranslateToken {
             "BATCH_MODE"
         }
 
-        if (Alltrans.context == null) {
+        if (Alltrans.context?.get() == null) {
             Log.e(TAG, "Static context is null. Aborting.")
             handleTranslationFailure("Static context is null", null)
             return
@@ -388,7 +388,7 @@ internal class GetTranslateToken {
 
                     if (finalResult == GtransProvider.MLKIT_MODEL_UNAVAILABLE_ERROR) {
                         Utils.debugLog("$TAG: ML Kit Model Unavailable Error received from GtransProvider for text: [$textToTranslate]")
-                        val errorDisplayMessage = Alltrans.context?.getString(R.string.mlkit_model_unavailable_user_message) ?: "ML Kit translation model not downloaded. Please download it via Model Management."
+                        val errorDisplayMessage = Alltrans.context?.get()?.getString(R.string.mlkit_model_unavailable_user_message) ?: "ML Kit translation model not downloaded. Please download it via Model Management."
                         finalResult = errorDisplayMessage
                         responseMessage = "ML Kit Model Unavailable"
                     }
@@ -571,7 +571,7 @@ internal class GetTranslateToken {
         private const val TAG = "AllTrans:GetTranslateToken"
 
         private fun createHttpsClientCache(): Cache? {
-            val context = Alltrans.context ?: run {
+            val context = Alltrans.context?.get() ?: run {
                 Log.e(TAG, "Context is null in createHttpsClientCache...")
                 return null
             }

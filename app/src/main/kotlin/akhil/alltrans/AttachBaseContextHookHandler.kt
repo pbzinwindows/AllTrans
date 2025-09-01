@@ -88,8 +88,8 @@ internal class AttachBaseContextHookHandler : XC_MethodHook() {
             }
 
             // Define o contexto global se ainda não estiver definido
-            if (Alltrans.context == null) {
-                Alltrans.context = usableContext
+            if (Alltrans.context?.get() == null) {
+                Alltrans.context = java.lang.ref.WeakReference(usableContext)
                 Utils.debugLog("AllTrans: Application context set successfully from attachBaseContext for package: $packageName")
             }
 

@@ -251,7 +251,7 @@ class DrawTextHookHandler : XC_MethodReplacement(), OriginalCallable {
             }
         } catch (e: Exception) {
             // Se não conseguir obter contexto do Canvas, usar o contexto global
-            Alltrans.context
+            Alltrans.context?.get()
         }
 
         val packageName = context?.packageName

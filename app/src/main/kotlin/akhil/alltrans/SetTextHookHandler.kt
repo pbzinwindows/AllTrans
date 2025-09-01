@@ -10,6 +10,7 @@ import android.view.View
 import android.widget.TextView
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
+import java.lang.ref.WeakReference
 import java.nio.CharBuffer
 import java.util.regex.Pattern
 
@@ -165,11 +166,13 @@ class SetTextHookHandler : XC_MethodHook() {
 
         Utils.debugLog("$TAG ($compositeKey): Solicitando tradução para TextView ${textView.hashCode()}, Texto: [$text]")
 
+        val weakTextView = WeakReference(textView)
+
         if (PreferenceList.TranslatorProvider == "m" && PreferenceList.CurrentAppMicrosoftBatchEnabled) {
             Utils.debugLog("$TAG ($compositeKey): Usando BatchTranslationManager para Microsoft para: [$text]")
             Alltrans.batchManager.addString(
                 text = text,
-                userData = textView,
+                userData = weakTextView,
                 originalCallable = null,
                 canCallOriginal = false,
                 compositeKey = compositeKey
@@ -178,7 +181,7 @@ class SetTextHookHandler : XC_MethodHook() {
             Utils.debugLog("$TAG ($compositeKey): Usando GetTranslate direto para: [$text]")
             val getTranslate = GetTranslate().apply {
                 stringToBeTrans = text
-                userData = textView
+                userData = weakTextView
                 originalCallable = null
                 canCallOriginal = false
                 pendingCompositeKey = compositeKey

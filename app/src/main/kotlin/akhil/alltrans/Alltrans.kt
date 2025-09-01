@@ -23,6 +23,7 @@ import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam
+import java.lang.ref.WeakReference
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.util.Collections
@@ -595,7 +596,7 @@ class Alltrans : IXposedHookLoadPackage, IXposedHookZygoteInit {
             }
 
         @SuppressLint("StaticFieldLeak")
-        var context: Context? = null
+        var context: WeakReference<Context>? = null
         var baseRecordingCanvas: Class<*>? = null
         var settingsHooked: Boolean = false
 
