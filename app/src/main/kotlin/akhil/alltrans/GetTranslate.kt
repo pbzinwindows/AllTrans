@@ -258,7 +258,15 @@ class GetTranslate : Callback {
             try {
                 if (callbackInfo.userData is TextView) {
                     val tv = callbackInfo.userData
-                    if (translatedText != callbackInfo.originalString || !tv.text.toString().equals(translatedText)) {
+                    val originalItemString = callbackInfo.originalString
+                    val pendingText = tv.getTag(Alltrans.ALLTRANS_PENDING_TRANSLATION_TAG_KEY) as? String
+
+                    if (pendingText != originalItemString) {
+                        Utils.debugLog("$TAG: Batch: Discarding stale translation for (${tv.hashCode()}). Expected '$pendingText', got translation for '$originalItemString'.")
+                        return@Runnable
+                    }
+
+                    if (translatedText != originalItemString || !tv.text.toString().equals(translatedText)) {
                         Utils.debugLog("$TAG: Batch: Updating TextView (${tv.hashCode()}) with key ($keyToRemoveFromPending) with translated text: [$translatedText]")
                         tv.setTag(Alltrans.ALLTRANS_TRANSLATION_APPLIED_TAG_KEY, true)
                         tv.text = translatedText
@@ -295,7 +303,15 @@ class GetTranslate : Callback {
         val task = Runnable {
             try {
                 if (currentLocalUserData is TextView) {
-                    if (finalString != originalString || !currentLocalUserData.text.toString().equals(finalString)) {
+                    val tv = currentLocalUserData
+                    val pendingText = tv.getTag(Alltrans.ALLTRANS_PENDING_TRANSLATION_TAG_KEY) as? String
+
+                    if (pendingText != originalString) {
+                        Utils.debugLog("$TAG: Single: Discarding stale translation for (${tv.hashCode()}). Expected '$pendingText', got translation for '$originalString'.")
+                        return@Runnable
+                    }
+
+                    if (finalString != originalString || !tv.text.toString().equals(finalString)) {
                         Utils.debugLog("$TAG: Single: Updating TextView (${currentLocalUserData.hashCode()}) with key ($keyToRemove) with translated text: [$finalString]")
                         currentLocalUserData.setTag(Alltrans.ALLTRANS_TRANSLATION_APPLIED_TAG_KEY, true)
                         currentLocalUserData.text = finalString

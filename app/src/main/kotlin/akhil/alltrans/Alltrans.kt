@@ -612,6 +612,7 @@ class Alltrans : IXposedHookLoadPackage, IXposedHookZygoteInit {
         // Se WEBVIEW_HOOK_TAG_KEY_DEFAULT é um ID de recurso válido, você pode usá-lo ou criar um novo.
         // Vamos definir uma chave específica para isso.
         const val ALLTRANS_TRANSLATION_APPLIED_TAG_KEY: Int = 0x7A117AA6 // Exemplo de ID, idealmente de R.id.alltrans_applied_tag
+        const val ALLTRANS_PENDING_TRANSLATION_TAG_KEY: Int = 0x7A117AA7 // Chave para rastrear o texto original pendente de tradução
 
         private const val WEBVIEW_HOOK_TAG_KEY_DEFAULT: Int = 0x7f080001
         private var WEBVIEW_HOOK_TAG_KEY: Int = WEBVIEW_HOOK_TAG_KEY_DEFAULT

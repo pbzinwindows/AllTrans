@@ -57,9 +57,6 @@ class SetTextHookHandler : XC_MethodHook() {
                 if (!hasLetter && text.length <=3) {
                     Utils.debugLog("$TAG: Skipping (acronym-like, no letters, short): [$text]")
                     return true
-                } else if (hasLetter) {
-                    Utils.debugLog("$TAG: Skipping (acronym-like with letters): [$text]")
-                    return true
                 }
             }
             if (TIMESTAMP_PATTERN.matcher(text).matches()) {
@@ -269,6 +266,10 @@ class SetTextHookHandler : XC_MethodHook() {
             Utils.debugLog("$logPrefix - Tradução já está pendente para este texto/textview. Pulando nova requisição.")
             return
         }
+
+        // Marcar a TextView com o texto original para o qual estamos solicitando a tradução
+        textView.setTag(Alltrans.ALLTRANS_PENDING_TRANSLATION_TAG_KEY, originalText)
+        Utils.debugLog("$logPrefix - Marcando TextView ${textView.hashCode()} com o texto pendente: [$originalText]")
 
         requestTranslation(originalText, textView, compositeKey)
     }
