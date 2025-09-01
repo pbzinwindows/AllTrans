@@ -262,15 +262,7 @@ class GetTranslate : Callback {
 
                 if (view is TextView) {
                     val tv = view
-                    val originalItemString = callbackInfo.originalString
-                    val pendingText = tv.getTag(Alltrans.ALLTRANS_PENDING_TRANSLATION_TAG_KEY) as? String
-
-                    if (pendingText != originalItemString) {
-                        Utils.debugLog("$TAG: Batch: Discarding stale translation for (${tv.hashCode()}). Expected '$pendingText', got translation for '$originalItemString'.")
-                        return@Runnable
-                    }
-
-                    if (translatedText != originalItemString || !tv.text.toString().equals(translatedText)) {
+                    if (translatedText != callbackInfo.originalString || !tv.text.toString().equals(translatedText)) {
                         Utils.debugLog("$TAG: Batch: Updating TextView (${tv.hashCode()}) with key ($keyToRemoveFromPending) with translated text: [$translatedText]")
                         tv.setTag(Alltrans.ALLTRANS_TRANSLATION_APPLIED_TAG_KEY, true)
                         tv.text = translatedText
@@ -313,13 +305,6 @@ class GetTranslate : Callback {
 
                 if (view is TextView) {
                     val tv = view
-                    val pendingText = tv.getTag(Alltrans.ALLTRANS_PENDING_TRANSLATION_TAG_KEY) as? String
-
-                    if (pendingText != originalString) {
-                        Utils.debugLog("$TAG: Single: Discarding stale translation for (${tv.hashCode()}). Expected '$pendingText', got translation for '$originalString'.")
-                        return@Runnable
-                    }
-
                     if (finalString != originalString || !tv.text.toString().equals(finalString)) {
                         Utils.debugLog("$TAG: Single: Updating TextView (${tv.hashCode()}) with key ($keyToRemove) with translated text: [$finalString]")
                         tv.setTag(Alltrans.ALLTRANS_TRANSLATION_APPLIED_TAG_KEY, true)
