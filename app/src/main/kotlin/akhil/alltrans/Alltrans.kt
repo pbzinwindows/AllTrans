@@ -627,6 +627,12 @@ class Alltrans : IXposedHookLoadPackage, IXposedHookZygoteInit {
                 WeakHashMap()
             )
 
+        fun cleanupWebViewHooks() {
+            synchronized(webViewHookInstances) {
+                webViewHookInstances.keys.removeIf { it == null }
+            }
+        }
+
         val batchManager: BatchTranslationManager by lazy {
             synchronized(Alltrans::class.java) {
                 BatchTranslationManager()
