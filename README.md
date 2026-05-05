@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/pbzinwindows/AllTrans-dev/master/app/src/main/ic_launcher-web.png" width="112" alt="AllTrans logo">
+  <img src="assets/logo.png" width="112" alt="AllTrans logo">
 </p>
 
 <h1 align="center">AllTrans</h1>
@@ -42,16 +42,16 @@ This enhanced edition focuses on making app translation faster, smarter, and mor
 ## Screenshots
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/pbzinwindows/AllTrans-dev/master/screenshots/Screen1.png" width="230" alt="AllTrans main screen">
-  <img src="https://raw.githubusercontent.com/pbzinwindows/AllTrans-dev/master/screenshots/Screen2.png" width="230" alt="AllTrans app settings">
+  <img src="screenshots/Screen1.png" width="230" alt="AllTrans main screen">
+  <img src="screenshots/Screen2.png" width="230" alt="AllTrans app settings">
 </p>
 
 ## Translation Example
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/pbzinwindows/AllTrans-dev/master/screenshots/Joint1S.png" width="210" alt="Translation example 1">
-  <img src="https://raw.githubusercontent.com/pbzinwindows/AllTrans-dev/master/screenshots/Joint2S.png" width="210" alt="Translation example 2">
-  <img src="https://raw.githubusercontent.com/pbzinwindows/AllTrans-dev/master/screenshots/Joint3S.png" width="210" alt="Translation example 3">
+  <img src="screenshots/Joint1S.png" width="210" alt="Translation example 1">
+  <img src="screenshots/Joint2S.png" width="210" alt="Translation example 2">
+  <img src="screenshots/Joint3S.png" width="210" alt="Translation example 3">
 </p>
 
 ## Requirements
