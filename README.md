@@ -9,9 +9,9 @@
   <br>
   Translate text inside selected apps without modifying the original APK.
 </p>
+[![Repo Views](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2Fpbzin%2FAllTrans&label=repo%20views&countColor=%230e75b6&style=flat)](https://visitorbadge.io/status?path=https%3A%2F%2Fgithub.com%2Fpbzin%2FAllTrans)
 
 <p align="center">
-  [![Repo Views](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2Fpbzin%2FAllTrans&label=repo%20views&countColor=%230e75b6&style=flat)](https://visitorbadge.io/status?path=https%3A%2F%2Fgithub.com%2Fpbzin%2FAllTrans)
   <img src="https://img.shields.io/badge/Android-10%20to%2016-3DDC84?logo=android&logoColor=white" alt="Android 10 to 16">
   <img src="https://img.shields.io/badge/LSPosed%20%2F%20Xposed-supported-6C5CE7" alt="LSPosed and Xposed supported">
   <img src="https://img.shields.io/badge/License-GPLv3-2E7D32" alt="GPLv3 license">
