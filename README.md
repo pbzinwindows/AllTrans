@@ -4,12 +4,13 @@
 
 <h1 align="center">AllTrans</h1>
 
+[![Repo Views](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2Fpbzin%2FAllTrans&label=repo%20views&countColor=%230e75b6&style=flat)](https://visitorbadge.io/status?path=https%3A%2F%2Fgithub.com%2Fpbzin%2FAllTrans)
+
 <p align="center">
   Runtime translation for Android apps.
   <br>
   Translate text inside selected apps without modifying the original APK.
 </p>
-[![Repo Views](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2Fpbzin%2FAllTrans&label=repo%20views&countColor=%230e75b6&style=flat)](https://visitorbadge.io/status?path=https%3A%2F%2Fgithub.com%2Fpbzin%2FAllTrans)
 
 <p align="center">
   <img src="https://img.shields.io/badge/Android-10%20to%2016-3DDC84?logo=android&logoColor=white" alt="Android 10 to 16">
