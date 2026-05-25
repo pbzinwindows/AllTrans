@@ -6,6 +6,8 @@
 
 [![Repo Views](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2Fpbzin%2FAllTrans&label=repo%20views&countColor=%230e75b6&style=flat)](https://visitorbadge.io/status?path=https%3A%2F%2Fgithub.com%2Fpbzin%2FAllTrans)
 
+[![GitHub Downloads](https://img.shields.io/github/downloads/pbzin/AllTrans/total?label=downloads&color=%230e75b6&style=flat)](https://github.com/pbzin/AllTrans/releases)
+
 <p align="center">
   Runtime translation for Android apps.
   <br>
